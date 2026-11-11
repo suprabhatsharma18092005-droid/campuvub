@@ -22,6 +22,7 @@
 - [ ] Publish the Lovable app so the hand-off is live, then verify on Vercel with a real device (user action).
 
 - [x] Move database and sign-in to the connected Campu Supabase project (schema, rules, storage, admin trigger).
+- [x] Public read rule for catalog-media photos, hand-off URL pointed to campuvub.lovable.app, Firebase web settings in .env, database tests repaired.
 - [ ] Make the catalog-media photo bucket public in the Supabase dashboard (workspace blocks it here) — user action.
 - [ ] Turn on Google sign-in and redirect URLs in the Campu Supabase dashboard — user action.
 - [ ] Import existing products/categories/orders from the old database — waiting on exported files.
