@@ -1,5 +1,5 @@
 /** Browser-safe Category → Subcategory → Brand selection rules shared by storefront pages. */
-export type CatalogSelection = { category?: string; subcategory?: string; brand?: string };
+export type CatalogSelection = { category?: string | undefined; subcategory?: string | undefined; brand?: string | undefined };
 
 type Linked = { category_id: string | null; subcategory_id?: string | null; brand_id?: string | null };
 

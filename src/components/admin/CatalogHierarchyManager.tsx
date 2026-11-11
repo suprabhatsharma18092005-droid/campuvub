@@ -13,7 +13,7 @@ import { brandsQuery, categoriesQuery, subcategoriesQuery } from "@/lib/queries"
 import { cn } from "@/lib/utils";
 
 type NodeTable = "categories" | "subcategories" | "brands";
-type CatalogNode = { id: string; name: string; image_url: string | null; emoji?: string | null; is_active?: boolean };
+type CatalogNode = { id: string; name: string; image_url: string | null; emoji?: string | null | undefined; is_active?: boolean | undefined };
 type Parent = { category_id?: string; subcategory_id?: string };
 
 async function writeNode(table: NodeTable, id: string | null, values: { name: string; image_url: string | null }, parent: Parent, sortOrder: number) {
