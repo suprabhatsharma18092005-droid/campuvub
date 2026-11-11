@@ -11,7 +11,7 @@ export const productsQuery = queryOptions({
   queryFn: async (): Promise<Product[]> => {
     const { data, error } = await supabase
       .from("products")
-      .select("id, name, description, price, actual_price, badge_text, specs_text, tagline, image_url, image_path, in_stock, category_id, stock_quantity, delivery_types")
+      .select("id, name, description, price, actual_price, badge_text, specs_text, tagline, image_url, image_path, in_stock, category_id, subcategory_id, brand_id, stock_quantity, delivery_types")
       .order("created_at", { ascending: true });
     if (error) throw error;
     return (data ?? []).map((product) => ({
@@ -21,7 +21,7 @@ export const productsQuery = queryOptions({
   },
 });
 
-export type Category = { id: string; name: string; emoji: string; image_url: string | null; sort_order: number };
+export type Category = { id: string; name: string; emoji: string | null; image_url: string | null; sort_order: number };
 
 export const categoriesQuery = queryOptions({
   queryKey: ["categories"],
@@ -34,6 +34,56 @@ export const categoriesQuery = queryOptions({
       .order("sort_order");
     if (error) throw error;
     return (data ?? []) as Category[];
+  },
+});
+
+export type Subcategory = {
+  id: string;
+  category_id: string;
+  name: string;
+  image_url: string | null;
+  sort_order: number;
+  is_active: boolean;
+};
+
+/** Storefront hides inactive rows itself; admins receive them too (RLS) so they can re-enable them. */
+export const subcategoriesQuery = queryOptions({
+  queryKey: ["subcategories"],
+  staleTime: 5 * 60_000,
+  placeholderData: keepPreviousData,
+  queryFn: async (): Promise<Subcategory[]> => {
+    const { data, error } = await supabase
+      .from("subcategories")
+      .select("id, category_id, name, image_url, sort_order, is_active")
+      .order("sort_order")
+      .order("name");
+    if (error) throw error;
+    return data ?? [];
+  },
+});
+
+export type Brand = {
+  id: string;
+  subcategory_id: string;
+  category_id: string | null;
+  name: string;
+  image_url: string | null;
+  sort_order: number;
+  is_active: boolean;
+};
+
+export const brandsQuery = queryOptions({
+  queryKey: ["brands"],
+  staleTime: 5 * 60_000,
+  placeholderData: keepPreviousData,
+  queryFn: async (): Promise<Brand[]> => {
+    const { data, error } = await supabase
+      .from("brands")
+      .select("id, subcategory_id, category_id, name, image_url, sort_order, is_active")
+      .order("sort_order")
+      .order("name");
+    if (error) throw error;
+    return data ?? [];
   },
 });
 

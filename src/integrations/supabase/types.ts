@@ -56,6 +56,54 @@ export type Database = {
         }
         Relationships: []
       }
+      brands: {
+        Row: {
+          category_id: string | null
+          created_at: string
+          id: string
+          image_url: string | null
+          is_active: boolean
+          name: string
+          sort_order: number
+          subcategory_id: string
+        }
+        Insert: {
+          category_id?: string | null
+          created_at?: string
+          id?: string
+          image_url?: string | null
+          is_active?: boolean
+          name: string
+          sort_order?: number
+          subcategory_id: string
+        }
+        Update: {
+          category_id?: string | null
+          created_at?: string
+          id?: string
+          image_url?: string | null
+          is_active?: boolean
+          name?: string
+          sort_order?: number
+          subcategory_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "brands_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "brands_subcategory_id_fkey"
+            columns: ["subcategory_id"]
+            isOneToOne: false
+            referencedRelation: "subcategories"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       broadcasts: {
         Row: {
           body: string
@@ -79,21 +127,21 @@ export type Database = {
       }
       categories: {
         Row: {
-          emoji: string
+          emoji: string | null
           id: string
           image_url: string | null
           name: string
           sort_order: number
         }
         Insert: {
-          emoji?: string
+          emoji?: string | null
           id?: string
           image_url?: string | null
           name: string
           sort_order?: number
         }
         Update: {
-          emoji?: string
+          emoji?: string | null
           id?: string
           image_url?: string | null
           name?: string
@@ -180,6 +228,7 @@ export type Database = {
         Row: {
           actual_price: number | null
           badge_text: string | null
+          brand_id: string | null
           category_id: string | null
           created_at: string
           delivery_types: string[]
@@ -192,11 +241,13 @@ export type Database = {
           price: number
           specs_text: string | null
           stock_quantity: number
+          subcategory_id: string | null
           tagline: string | null
         }
         Insert: {
           actual_price?: number | null
           badge_text?: string | null
+          brand_id?: string | null
           category_id?: string | null
           created_at?: string
           delivery_types?: string[]
@@ -209,11 +260,13 @@ export type Database = {
           price: number
           specs_text?: string | null
           stock_quantity?: number
+          subcategory_id?: string | null
           tagline?: string | null
         }
         Update: {
           actual_price?: number | null
           badge_text?: string | null
+          brand_id?: string | null
           category_id?: string | null
           created_at?: string
           delivery_types?: string[]
@@ -226,14 +279,29 @@ export type Database = {
           price?: number
           specs_text?: string | null
           stock_quantity?: number
+          subcategory_id?: string | null
           tagline?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "products_brand_id_fkey"
+            columns: ["brand_id"]
+            isOneToOne: false
+            referencedRelation: "brands"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "products_category_id_fkey"
             columns: ["category_id"]
             isOneToOne: false
             referencedRelation: "categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "products_subcategory_id_fkey"
+            columns: ["subcategory_id"]
+            isOneToOne: false
+            referencedRelation: "subcategories"
             referencedColumns: ["id"]
           },
         ]
@@ -299,6 +367,44 @@ export type Database = {
             columns: ["user_id"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      subcategories: {
+        Row: {
+          category_id: string
+          created_at: string
+          id: string
+          image_url: string | null
+          is_active: boolean
+          name: string
+          sort_order: number
+        }
+        Insert: {
+          category_id: string
+          created_at?: string
+          id?: string
+          image_url?: string | null
+          is_active?: boolean
+          name: string
+          sort_order?: number
+        }
+        Update: {
+          category_id?: string
+          created_at?: string
+          id?: string
+          image_url?: string | null
+          is_active?: boolean
+          name?: string
+          sort_order?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "subcategories_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "categories"
             referencedColumns: ["id"]
           },
         ]

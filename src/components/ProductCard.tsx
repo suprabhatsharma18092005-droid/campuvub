@@ -20,6 +20,8 @@ export type Product = {
   image_url: string | null;
   in_stock: boolean;
   category_id: string | null;
+  subcategory_id?: string | null;
+  brand_id?: string | null;
   stock_quantity: number;
   delivery_types?: string[] | null;
   actual_price?: number | string | null;

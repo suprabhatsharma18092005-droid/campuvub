@@ -23,11 +23,13 @@ export async function resolveCatalogImage(reference: string | null | undefined) 
   return catalogPublicUrl(reference);
 }
 
-export async function uploadCatalogImage(file: File, folder: "banners" | "products") {
+export type CatalogFolder = "banners" | "products" | "categories" | "subcategories" | "brands";
+
+export async function uploadCatalogImage(file: File, folder: CatalogFolder) {
   if (!file.type.startsWith("image/") || file.size > 5 * 1024 * 1024) {
     throw new Error("Choose an image smaller than 5 MB.");
   }
-  const optimized = await downscaleImage(file, folder === "banners" ? 1600 : 800);
+  const optimized = await downscaleImage(file, folder === "banners" ? 1600 : folder === "products" ? 800 : 400);
   const upload = optimized ?? file;
   const extension = optimized
     ? optimized.type === "image/webp" ? "webp" : "jpg"
@@ -39,6 +41,26 @@ export async function uploadCatalogImage(file: File, folder: "banners" | "produc
   });
   if (error) throw error;
   return path;
+}
+
+/** Upload and return the permanent public URL (used for category, subcategory and brand images). */
+export async function uploadCatalogImageUrl(file: File, folder: CatalogFolder) {
+  const path = await uploadCatalogImage(file, folder);
+  return supabase.storage.from(CATALOG_BUCKET).getPublicUrl(path).data.publicUrl;
+}
+
+/** Object path inside `catalog-media` for a stored public URL or catalog reference; null for outside images. */
+export function catalogPathFromUrl(url: string | null | undefined) {
+  if (!url) return null;
+  const marker = `/storage/v1/object/public/${CATALOG_BUCKET}/`;
+  const at = url.indexOf(marker);
+  if (at >= 0) return decodeURIComponent(url.slice(at + marker.length).split("?")[0] ?? "") || null;
+  return catalogPath(url);
+}
+
+export async function removeCatalogImageUrl(url: string | null | undefined) {
+  const path = catalogPathFromUrl(url);
+  if (path) await removeCatalogImage(path);
 }
 
 export async function removeCatalogImage(reference: string | null | undefined) {
