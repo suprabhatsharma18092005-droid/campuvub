@@ -102,7 +102,7 @@ function Home() {
       {(categories.data ?? []).length > 0 && <section className="px-4 pt-5">
         <div className="mb-3 flex items-center justify-between">
           <h2 className="font-display text-base font-bold">Shop by category</h2>
-          <Link to="/categories" search={{ category: undefined }} className="text-xs font-semibold text-primary">See all</Link>
+          <Link to="/categories" search={selection} className="text-xs font-semibold text-primary">See all</Link>
         </div>
         <CategoryBrowser selection={selection} onChange={setSelection} />
       </section>}
@@ -122,7 +122,7 @@ function Home() {
             ))}
           </div>
         ) : list.length === 0 ? (
-          <p className="py-10 text-center text-sm text-muted-foreground">Nothing found. Try another search.</p>
+          <p className="py-10 text-center text-sm text-muted-foreground">{selectionName && !q ? "No products here yet." : "Nothing found. Try another search."}</p>
         ) : (
           <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5">
             {list.map((p, i) => (
