@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 import { PGlite } from '@electric-sql/pglite';
-import { readFile } from 'node:fs/promises';
+import { migrationSection } from './testing/migration-sql.mjs';
 
 const A = '11111111-1111-4111-8111-111111111111';
 const B = '22222222-2222-4222-8222-222222222222';
@@ -23,7 +23,7 @@ async function setup() {
       device_id uuid NOT NULL, project_id text NOT NULL, updated_at timestamptz NOT NULL DEFAULT now(),
       UNIQUE (user_id, device_id));
   `);
-  await db.exec(await readFile(new URL('../../drizzle/migrations/0004_register_push_device_rpc.sql', import.meta.url), 'utf8'));
+  await db.exec(await migrationSection('CREATE OR REPLACE FUNCTION public.register_push_device', '-- ===== Auth lifecycle'));
   return db;
 }
 const as = (db, uid) => db.exec(`SELECT set_config('test.uid', '${uid}', false)`);
