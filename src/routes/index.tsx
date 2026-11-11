@@ -8,7 +8,9 @@ import { PreorderNotice, usePreorder } from "@/components/PreorderNotice";
 import { ProductCard, type Product } from "@/components/ProductCard";
 import { Input } from "@/components/ui/input";
 import { HeroCarousel } from "@/components/HeroCarousel";
-import { categoriesQuery, productsQuery } from "@/lib/queries";
+import { brandsQuery, categoriesQuery, productsQuery, subcategoriesQuery } from "@/lib/queries";
+import { CategoryBrowser } from "@/components/CategoryBrowser";
+import { productMatchesSelection, type CatalogSelection } from "@/lib/catalog-hierarchy";
 import { bannersQuery } from "@/components/HeroCarousel";
 import { DeliveryModeToggle } from "@/components/DeliveryModeToggle";
 import { productInMode, useDeliveryMode } from "@/lib/delivery";
@@ -35,6 +37,8 @@ export const Route = createFileRoute("/")({
     return Promise.all([
       context.queryClient.prefetchQuery(productsQuery),
       context.queryClient.prefetchQuery(categoriesQuery),
+      context.queryClient.prefetchQuery(subcategoriesQuery),
+      context.queryClient.prefetchQuery(brandsQuery),
       context.queryClient.prefetchQuery(bannersQuery),
     ]).then(() => undefined);
   },
@@ -45,6 +49,9 @@ function Home() {
   const [q, setQ] = useState("");
   const products = useQuery(productsQuery);
   const categories = useQuery(categoriesQuery);
+  const subcategories = useQuery(subcategoriesQuery);
+  const brands = useQuery(brandsQuery);
+  const [selection, setSelection] = useState<CatalogSelection>({});
   const { settings, remaining } = usePreorder();
   const mode = useDeliveryMode();
 
@@ -67,11 +74,15 @@ function Home() {
     ? randomizedProducts
     : products.data ?? [];
   const list = useMemo(() => {
-    const inMode = visibleProducts.filter((p) => productInMode(p.delivery_types, mode));
+    const inMode = visibleProducts.filter((p) => productInMode(p.delivery_types, mode) && productMatchesSelection(p, selection));
     if (!q.trim()) return inMode;
     const term = q.toLowerCase();
     return inMode.filter((p) => p.name.toLowerCase().includes(term));
-  }, [visibleProducts, q, mode]);
+  }, [visibleProducts, q, mode, selection]);
+  const selectionName =
+    brands.data?.find((b) => b.id === selection.brand)?.name ??
+    subcategories.data?.find((s) => s.id === selection.subcategory)?.name ??
+    categories.data?.find((c) => c.id === selection.category)?.name;
 
   return (
     <AppShell>
@@ -93,26 +104,7 @@ function Home() {
           <h2 className="font-display text-base font-bold">Shop by category</h2>
           <Link to="/categories" search={{ category: undefined }} className="text-xs font-semibold text-primary">See all</Link>
         </div>
-        <div data-horizontal-scroll className="flex gap-2 overflow-x-auto pb-2 [scrollbar-width:none] md:grid md:grid-cols-3 md:overflow-visible lg:grid-cols-5">
-          <Link
-            to="/categories"
-            search={{ category: undefined }}
-            className="inline-flex shrink-0 items-center gap-2 rounded-full border border-border/70 bg-card px-3.5 py-2 text-sm font-medium shadow-card transition-transform active:scale-95"
-          >
-            <span>All</span>
-          </Link>
-          {(categories.data ?? []).map((c) => (
-            <Link
-              key={c.id}
-              to="/categories"
-              search={{ category: c.id }}
-              className="inline-flex shrink-0 items-center gap-2 rounded-full border border-border/70 bg-card px-3.5 py-2 text-sm font-medium shadow-card transition-transform active:scale-95"
-            >
-              <span>{c.emoji}</span>
-              <span>{c.name}</span>
-            </Link>
-          ))}
-        </div>
+        <CategoryBrowser selection={selection} onChange={setSelection} />
       </section>}
 
       <section className="px-4 pt-3">
@@ -121,7 +113,7 @@ function Home() {
 
       <section className="px-4 pb-36 pt-4">
         <h2 className="mb-3 font-display text-lg font-bold">
-          {q ? `Results for "${q}"` : "Popular right now"}
+          {q ? `Results for "${q}"` : selectionName ?? "Popular right now"}
         </h2>
         {products.isLoading ? (
           <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5">
