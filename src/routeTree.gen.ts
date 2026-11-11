@@ -10,33 +10,184 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
+import { Route as AuthRouteImport } from './routes/auth'
+import { Route as CartRouteImport } from './routes/cart'
+import { Route as CategoriesRouteImport } from './routes/categories'
+import { Route as AuthenticatedAdminRouteImport } from './routes/_authenticated/admin'
+import { Route as AuthenticatedCheckoutRouteImport } from './routes/_authenticated/checkout'
+import { Route as AuthenticatedProfileRouteImport } from './routes/_authenticated/profile'
+import { Route as ProductIdRouteImport } from './routes/product.$id'
+import { Route as AuthenticatedOrdersIndexRouteImport } from './routes/_authenticated/orders.index'
+import { Route as AuthenticatedOrdersIdRouteImport } from './routes/_authenticated/orders.$id'
+import { Route as ApiPublicPushEventRouteImport } from './routes/api/public/push-event'
+import { Route as ApiPublicPushRelayRouteImport } from './routes/api/public/push-relay'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AuthenticatedRouteRoute = AuthenticatedRouteRouteImport.update({
+  id: '/_authenticated',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuthRoute = AuthRouteImport.update({
+  id: '/auth',
+  path: '/auth',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CartRoute = CartRouteImport.update({
+  id: '/cart',
+  path: '/cart',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CategoriesRoute = CategoriesRouteImport.update({
+  id: '/categories',
+  path: '/categories',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuthenticatedAdminRoute = AuthenticatedAdminRouteImport.update({
+  id: '/admin',
+  path: '/admin',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedCheckoutRoute = AuthenticatedCheckoutRouteImport.update({
+  id: '/checkout',
+  path: '/checkout',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedProfileRoute = AuthenticatedProfileRouteImport.update({
+  id: '/profile',
+  path: '/profile',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const ProductIdRoute = ProductIdRouteImport.update({
+  id: '/product/$id',
+  path: '/product/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuthenticatedOrdersIndexRoute =
+  AuthenticatedOrdersIndexRouteImport.update({
+    id: '/orders/',
+    path: '/orders/',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedOrdersIdRoute = AuthenticatedOrdersIdRouteImport.update({
+  id: '/orders/$id',
+  path: '/orders/$id',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const ApiPublicPushEventRoute = ApiPublicPushEventRouteImport.update({
+  id: '/api/public/push-event',
+  path: '/api/public/push-event',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiPublicPushRelayRoute = ApiPublicPushRelayRouteImport.update({
+  id: '/api/public/push-relay',
+  path: '/api/public/push-relay',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/auth': typeof AuthRoute
+  '/cart': typeof CartRoute
+  '/categories': typeof CategoriesRoute
+  '/admin': typeof AuthenticatedAdminRoute
+  '/checkout': typeof AuthenticatedCheckoutRoute
+  '/profile': typeof AuthenticatedProfileRoute
+  '/product/$id': typeof ProductIdRoute
+  '/orders/$id': typeof AuthenticatedOrdersIdRoute
+  '/api/public/push-event': typeof ApiPublicPushEventRoute
+  '/api/public/push-relay': typeof ApiPublicPushRelayRoute
+  '/orders/': typeof AuthenticatedOrdersIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/auth': typeof AuthRoute
+  '/cart': typeof CartRoute
+  '/categories': typeof CategoriesRoute
+  '/admin': typeof AuthenticatedAdminRoute
+  '/checkout': typeof AuthenticatedCheckoutRoute
+  '/profile': typeof AuthenticatedProfileRoute
+  '/product/$id': typeof ProductIdRoute
+  '/orders/$id': typeof AuthenticatedOrdersIdRoute
+  '/api/public/push-event': typeof ApiPublicPushEventRoute
+  '/api/public/push-relay': typeof ApiPublicPushRelayRoute
+  '/orders': typeof AuthenticatedOrdersIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
+  '/auth': typeof AuthRoute
+  '/cart': typeof CartRoute
+  '/categories': typeof CategoriesRoute
+  '/_authenticated/admin': typeof AuthenticatedAdminRoute
+  '/_authenticated/checkout': typeof AuthenticatedCheckoutRoute
+  '/_authenticated/profile': typeof AuthenticatedProfileRoute
+  '/product/$id': typeof ProductIdRoute
+  '/_authenticated/orders/$id': typeof AuthenticatedOrdersIdRoute
+  '/api/public/push-event': typeof ApiPublicPushEventRoute
+  '/api/public/push-relay': typeof ApiPublicPushRelayRoute
+  '/_authenticated/orders/': typeof AuthenticatedOrdersIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/'
+  fullPaths:
+    | '/'
+    | '/auth'
+    | '/cart'
+    | '/categories'
+    | '/admin'
+    | '/checkout'
+    | '/profile'
+    | '/product/$id'
+    | '/orders/$id'
+    | '/api/public/push-event'
+    | '/api/public/push-relay'
+    | '/orders/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/'
-  id: '__root__' | '/'
+  to:
+    | '/'
+    | '/auth'
+    | '/cart'
+    | '/categories'
+    | '/admin'
+    | '/checkout'
+    | '/profile'
+    | '/product/$id'
+    | '/orders/$id'
+    | '/api/public/push-event'
+    | '/api/public/push-relay'
+    | '/orders'
+  id:
+    | '__root__'
+    | '/'
+    | '/_authenticated'
+    | '/auth'
+    | '/cart'
+    | '/categories'
+    | '/_authenticated/admin'
+    | '/_authenticated/checkout'
+    | '/_authenticated/profile'
+    | '/product/$id'
+    | '/_authenticated/orders/$id'
+    | '/api/public/push-event'
+    | '/api/public/push-relay'
+    | '/_authenticated/orders/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
+  AuthRoute: typeof AuthRoute
+  CartRoute: typeof CartRoute
+  CategoriesRoute: typeof CategoriesRoute
+  ProductIdRoute: typeof ProductIdRoute
+  ApiPublicPushEventRoute: typeof ApiPublicPushEventRoute
+  ApiPublicPushRelayRoute: typeof ApiPublicPushRelayRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -48,11 +199,121 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_authenticated': {
+      id: '/_authenticated'
+      path: ''
+      fullPath: '/'
+      preLoaderRoute: typeof AuthenticatedRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/auth': {
+      id: '/auth'
+      path: '/auth'
+      fullPath: '/auth'
+      preLoaderRoute: typeof AuthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/cart': {
+      id: '/cart'
+      path: '/cart'
+      fullPath: '/cart'
+      preLoaderRoute: typeof CartRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/categories': {
+      id: '/categories'
+      path: '/categories'
+      fullPath: '/categories'
+      preLoaderRoute: typeof CategoriesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/_authenticated/admin': {
+      id: '/_authenticated/admin'
+      path: '/admin'
+      fullPath: '/admin'
+      preLoaderRoute: typeof AuthenticatedAdminRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/checkout': {
+      id: '/_authenticated/checkout'
+      path: '/checkout'
+      fullPath: '/checkout'
+      preLoaderRoute: typeof AuthenticatedCheckoutRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/profile': {
+      id: '/_authenticated/profile'
+      path: '/profile'
+      fullPath: '/profile'
+      preLoaderRoute: typeof AuthenticatedProfileRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/product/$id': {
+      id: '/product/$id'
+      path: '/product/$id'
+      fullPath: '/product/$id'
+      preLoaderRoute: typeof ProductIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/_authenticated/orders/': {
+      id: '/_authenticated/orders/'
+      path: '/orders'
+      fullPath: '/orders/'
+      preLoaderRoute: typeof AuthenticatedOrdersIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/orders/$id': {
+      id: '/_authenticated/orders/$id'
+      path: '/orders/$id'
+      fullPath: '/orders/$id'
+      preLoaderRoute: typeof AuthenticatedOrdersIdRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/api/public/push-event': {
+      id: '/api/public/push-event'
+      path: '/api/public/push-event'
+      fullPath: '/api/public/push-event'
+      preLoaderRoute: typeof ApiPublicPushEventRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public/push-relay': {
+      id: '/api/public/push-relay'
+      path: '/api/public/push-relay'
+      fullPath: '/api/public/push-relay'
+      preLoaderRoute: typeof ApiPublicPushRelayRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
+interface AuthenticatedRouteRouteChildren {
+  AuthenticatedAdminRoute: typeof AuthenticatedAdminRoute
+  AuthenticatedCheckoutRoute: typeof AuthenticatedCheckoutRoute
+  AuthenticatedProfileRoute: typeof AuthenticatedProfileRoute
+  AuthenticatedOrdersIdRoute: typeof AuthenticatedOrdersIdRoute
+  AuthenticatedOrdersIndexRoute: typeof AuthenticatedOrdersIndexRoute
+}
+
+const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
+  AuthenticatedAdminRoute: AuthenticatedAdminRoute,
+  AuthenticatedCheckoutRoute: AuthenticatedCheckoutRoute,
+  AuthenticatedProfileRoute: AuthenticatedProfileRoute,
+  AuthenticatedOrdersIdRoute: AuthenticatedOrdersIdRoute,
+  AuthenticatedOrdersIndexRoute: AuthenticatedOrdersIndexRoute,
+}
+
+const AuthenticatedRouteRouteWithChildren =
+  AuthenticatedRouteRoute._addFileChildren(AuthenticatedRouteRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
+  AuthRoute: AuthRoute,
+  CartRoute: CartRoute,
+  CategoriesRoute: CategoriesRoute,
+  ProductIdRoute: ProductIdRoute,
+  ApiPublicPushEventRoute: ApiPublicPushEventRoute,
+  ApiPublicPushRelayRoute: ApiPublicPushRelayRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

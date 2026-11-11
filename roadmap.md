@@ -1,0 +1,22 @@
+- [x] Phase 1: Admin payment/settings controls, direct QR upload, night mode pricing, and daily pre-order countdown with checkout enforcement.
+- [x] Home/Categories grocery layout, brand-preserving carousel, and floating navigation.
+- [x] Admin banner upload, listing, and removal with carousel refresh.
+- [x] Exact inventory form fields and direct product-photo upload; product edit/delete retained.
+- [x] Product detail quantity added to shared cart; cart indicators update immediately.
+- [x] Added Pending Orders and narrowed Active Orders while preserving payment/completed/cancelled views.
+- [ ] Validate the signed-in admin banner and product upload flows in a real admin session.
+
+- [ ] Redesign delivery selector, shared product cards, and category browsing visuals.
+- [ ] Add editable product pricing/details and category imagery in admin.
+- [ ] Separate admin order queues by delivery mode and highlight scheduled orders.
+- [ ] Apply additive database fields and verify storefront/admin behavior.
+- [x] Repair build/import errors and verify the public preview without changing features or design.
+- [x] Grant designated verified-email admin access and test database enforcement.
+- [x] Configure puch-campu registration, device migration and multi-device tokens.
+- [x] Await all order/status/broadcast notifications with privileged token lookup and stale-token cleanup.
+- [x] Verify notification tests, clean preview build and signed-in admin test empty-device handling.
+- [x] Update Firebase runtime secret securely and verify Google authentication.
+- [ ] Verify real device delivery for order/status/broadcast flows (requires a permitted real device).
+- [x] Audit current push schema, repair registration cleanup/retry and verify authenticated token persistence.
+- [x] External-host (Vercel) notifications: browser device saving via database function, event hand-off to the Lovable host, tests and docs.
+- [ ] Publish the Lovable app so the hand-off is live, then verify on Vercel with a real device (user action).
