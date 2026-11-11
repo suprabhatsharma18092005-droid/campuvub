@@ -12,10 +12,10 @@ export function CategoryThumb({
   all = false,
   priority = false,
 }: {
-  image?: string | null;
-  emoji?: string | null;
+  image?: string | null | undefined;
+  emoji?: string | null | undefined;
   name: string;
-  className?: string;
+  className?: string | undefined;
   all?: boolean;
   priority?: boolean;
 }) {
