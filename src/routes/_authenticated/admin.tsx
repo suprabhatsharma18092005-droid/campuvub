@@ -32,7 +32,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { supabase } from "@/integrations/supabase/client";
 import { rupees, STATUS_LABELS } from "@/lib/format";
 import { notifyBroadcast, updateOrderWithPush } from "@/lib/push.functions";
-import { categoriesQuery, productsQuery } from "@/lib/queries";
+import { brandsQuery, categoriesQuery, productsQuery, subcategoriesQuery } from "@/lib/queries";
+import { CatalogHierarchyManager } from "@/components/admin/CatalogHierarchyManager";
 import { useRoles, useSession } from "@/lib/session";
 import { QR_BUCKET } from "@/lib/upi";
 import { catalogReference, removeCatalogImage, uploadCatalogImage } from "@/lib/catalog-media";
@@ -641,9 +642,13 @@ type ProductRow = {
   image_url?: string | null;
   image_path?: string | null;
   category_id?: string | null;
+  subcategory_id?: string | null;
+  brand_id?: string | null;
   stock_quantity: number;
   delivery_types?: string[] | null;
 };
+
+const NONE = "none";
 
 function Inventory({
   products,
@@ -654,9 +659,13 @@ function Inventory({
 }) {
   const queryClient = useQueryClient();
   const categories = useQuery(categoriesQuery);
+  const allSubcategories = useQuery(subcategoriesQuery).data ?? [];
+  const allBrands = useQuery(brandsQuery).data ?? [];
   const [editing, setEditing] = useState<ProductRow | null>(null);
   const [adding, setAdding] = useState(false);
-  const [form, setForm] = useState({ name: "", description: "", category_id: "", price: "", stock: "10" });
+  const [form, setForm] = useState({ name: "", description: "", category_id: "", subcategory_id: "", brand_id: "", price: "", stock: "10" });
+  const subcategoryOptions = allSubcategories.filter((s) => s.category_id === form.category_id);
+  const brandOptions = allBrands.filter((b) => b.subcategory_id === form.subcategory_id);
   const [deliveryTypes, setDeliveryTypes] = useState<string[]>(["quick"]);
   const [photo, setPhoto] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
@@ -664,7 +673,7 @@ function Inventory({
   function openAdd() {
     setEditing(null);
     setPhoto(null);
-    setForm({ name: "", description: "", category_id: categories.data?.[0]?.id ?? "", price: "", stock: "10" });
+    setForm({ name: "", description: "", category_id: categories.data?.[0]?.id ?? "", subcategory_id: "", brand_id: "", price: "", stock: "10" });
     setDeliveryTypes(["quick"]);
     setAdding(true);
   }
@@ -672,7 +681,7 @@ function Inventory({
   function openEdit(product: ProductRow) {
     setEditing(product);
     setPhoto(null);
-    setForm({ name: product.name, description: product.description ?? "", category_id: product.category_id ?? "", price: String(product.price), stock: String(product.stock_quantity) });
+    setForm({ name: product.name, description: product.description ?? "", category_id: product.category_id ?? "", subcategory_id: product.subcategory_id ?? "", brand_id: product.brand_id ?? "", price: String(product.price), stock: String(product.stock_quantity) });
     setDeliveryTypes(product.delivery_types?.length ? product.delivery_types : ["quick"]);
     setAdding(true);
   }
@@ -696,6 +705,8 @@ function Inventory({
         name: form.name.trim(),
         description: form.description.trim() || null,
         category_id: form.category_id || null,
+        subcategory_id: form.subcategory_id || null,
+        brand_id: form.brand_id || null,
         price,
         stock_quantity: stock,
         in_stock: stock > 0,
@@ -734,7 +745,7 @@ function Inventory({
 
   return (
     <div className="space-y-3">
-      <CategoryManager products={products} />
+      <CatalogHierarchyManager products={products} />
       {adding ? (
         <div className="space-y-2 rounded-3xl border border-border bg-card p-4 shadow-card">
           <h2 className="font-display text-lg font-bold">{editing ? "Edit product" : "Add product"}</h2>
@@ -769,10 +780,42 @@ function Inventory({
                 Add category
               </Button>
             </div>
-          ) : <Select value={form.category_id} onValueChange={(category_id) => setForm((current) => ({ ...current, category_id }))}>
-            <SelectTrigger className="h-11 rounded-xl"><SelectValue placeholder="Choose category" /></SelectTrigger>
-            <SelectContent>{(categories.data ?? []).map((category) => <SelectItem key={category.id} value={category.id}>{category.emoji} {category.name}</SelectItem>)}</SelectContent>
-          </Select>}
+          ) : <>
+            <Select value={form.category_id} onValueChange={(category_id) => setForm((current) => ({ ...current, category_id, subcategory_id: "", brand_id: "" }))}>
+              <SelectTrigger className="h-11 rounded-xl" aria-label="Category"><SelectValue placeholder="Choose category" /></SelectTrigger>
+              <SelectContent>{(categories.data ?? []).map((category) => <SelectItem key={category.id} value={category.id}>{category.name}</SelectItem>)}</SelectContent>
+            </Select>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="block text-xs font-medium">Subcategory <span className="text-muted-foreground">(optional)</span></label>
+                <Select
+                  value={form.subcategory_id || NONE}
+                  disabled={subcategoryOptions.length === 0}
+                  onValueChange={(value) => setForm((current) => ({ ...current, subcategory_id: value === NONE ? "" : value, brand_id: "" }))}
+                >
+                  <SelectTrigger className="h-11 rounded-xl" aria-label="Subcategory"><SelectValue placeholder={subcategoryOptions.length ? "None" : "No subcategories"} /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={NONE}>None</SelectItem>
+                    {subcategoryOptions.map((s) => <SelectItem key={s.id} value={s.id}>{s.name}{s.is_active ? "" : " (hidden)"}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium">Brand <span className="text-muted-foreground">(optional)</span></label>
+                <Select
+                  value={form.brand_id || NONE}
+                  disabled={brandOptions.length === 0}
+                  onValueChange={(value) => setForm((current) => ({ ...current, brand_id: value === NONE ? "" : value }))}
+                >
+                  <SelectTrigger className="h-11 rounded-xl" aria-label="Brand"><SelectValue placeholder={brandOptions.length ? "None" : "No brands"} /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={NONE}>None</SelectItem>
+                    {brandOptions.map((b) => <SelectItem key={b.id} value={b.id}>{b.name}{b.is_active ? "" : " (hidden)"}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </>}
           <div className="grid grid-cols-2 gap-2">
             <div><label className="block text-xs font-medium" htmlFor="product-price">Price</label><Input id="product-price" value={form.price} onChange={(e) => setForm((current) => ({ ...current, price: e.target.value }))} inputMode="decimal" className="h-11 rounded-xl" /></div>
             <div><label className="block text-xs font-medium" htmlFor="product-stock">Stock Quantity</label><Input id="product-stock" value={form.stock} onChange={(e) => setForm((current) => ({ ...current, stock: e.target.value }))} inputMode="numeric" className="h-11 rounded-xl" /></div>
@@ -902,88 +945,6 @@ function BroadcastForm() {
       >
         Send to all
       </Button>
-    </div>
-  );
-}
-
-function CategoryManager({ products }: { products: ProductRow[] }) {
-  const queryClient = useQueryClient();
-  const categories = useQuery(categoriesQuery);
-  const [emoji, setEmoji] = useState("🛍️");
-  const [name, setName] = useState("");
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const list = categories.data ?? [];
-
-  function reset() {
-    setEditingId(null);
-    setName("");
-    setEmoji("🛍️");
-  }
-
-  async function save() {
-    const trimmed = name.trim();
-    if (!trimmed || trimmed.length > 40) {
-      toast.error("Enter a category name (max 40 characters).");
-      return;
-    }
-    setBusy(true);
-    const values = { name: trimmed, emoji: emoji.trim().slice(0, 8) || "🛍️" };
-    const { error } = editingId
-      ? await supabase.from("categories").update(values).eq("id", editingId)
-      : await supabase.from("categories").insert({ ...values, sort_order: list.length });
-    setBusy(false);
-    if (error) {
-      toast.error("Could not save category");
-      return;
-    }
-    toast.success(editingId ? "Category updated" : "Category added");
-    reset();
-    void queryClient.invalidateQueries({ queryKey: ["categories"] });
-  }
-
-  async function remove(id: string) {
-    if (products.some((p) => p.category_id === id)) {
-      toast.error("Move or delete the products in this category first.");
-      return;
-    }
-    const { error } = await supabase.from("categories").delete().eq("id", id);
-    if (error) {
-      toast.error("Could not delete category");
-      return;
-    }
-    toast.success("Category deleted");
-    if (editingId === id) reset();
-    void queryClient.invalidateQueries({ queryKey: ["categories"] });
-  }
-
-  return (
-    <div id="category-manager" className="scroll-mt-20 space-y-2 rounded-3xl border border-border bg-card p-4 shadow-card">
-      <h2 className="font-display text-lg font-bold">Categories</h2>
-      <div className="flex gap-2">
-        <Input aria-label="Category emoji" value={emoji} onChange={(e) => setEmoji(e.target.value)} className="h-11 w-16 rounded-xl text-center" />
-        <Input aria-label="Category name" placeholder="Category name" value={name} onChange={(e) => setName(e.target.value)} className="h-11 flex-1 rounded-xl" />
-        <Button onClick={() => void save()} disabled={busy} className="h-11 rounded-xl">
-          {editingId ? "Save" : <><Plus className="h-4 w-4" /> Add</>}
-        </Button>
-        {editingId && (
-          <Button variant="ghost" onClick={reset} className="h-11 rounded-xl" aria-label="Cancel edit"><X className="h-4 w-4" /></Button>
-        )}
-      </div>
-      {list.length === 0 ? (
-        <p className="py-2 text-sm text-muted-foreground">No categories yet.</p>
-      ) : (
-        <ul className="divide-y divide-border">
-          {list.map((c) => (
-            <li key={c.id} className="flex items-center gap-2 py-2 text-sm">
-              <span className="text-lg">{c.emoji}</span>
-              <span className="flex-1 font-medium">{c.name}</span>
-              <Button size="sm" variant="outline" className="rounded-full" onClick={() => { setEditingId(c.id); setName(c.name); setEmoji(c.emoji); }}>Edit</Button>
-              <Button size="sm" variant="ghost" className="rounded-full text-destructive" aria-label={`Delete ${c.name}`} onClick={() => void remove(c.id)}><Trash2 className="h-4 w-4" /></Button>
-            </li>
-          ))}
-        </ul>
-      )}
     </div>
   );
 }
