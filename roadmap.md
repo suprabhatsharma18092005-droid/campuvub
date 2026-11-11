@@ -20,3 +20,9 @@
 - [x] Audit current push schema, repair registration cleanup/retry and verify authenticated token persistence.
 - [x] External-host (Vercel) notifications: browser device saving via database function, event hand-off to the Lovable host, tests and docs.
 - [ ] Publish the Lovable app so the hand-off is live, then verify on Vercel with a real device (user action).
+
+- [x] Move database and sign-in to the connected Campu Supabase project (schema, rules, storage, admin trigger).
+- [ ] Make the catalog-media photo bucket public in the Supabase dashboard (workspace blocks it here) — user action.
+- [ ] Turn on Google sign-in and redirect URLs in the Campu Supabase dashboard — user action.
+- [ ] Import existing products/categories/orders from the old database — waiting on exported files.
+- [ ] Add the Firebase service-account secret so notifications send from this app — waiting on user.

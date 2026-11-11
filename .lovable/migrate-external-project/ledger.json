@@ -1,0 +1,11 @@
+[
+  {"capability":"code","source":"campus-crate-rush-main.zip","outcome":"restored unchanged","status":"verified","next_action":null},
+  {"capability":"schema","source":"types.ts + drizzle migrations + code","outcome":"recreated in Campu Supabase; generated types match original","status":"verified","next_action":null},
+  {"capability":"authorization","source":"RLS, triggers, has_role","outcome":"recreated; admin/order/OTP/cancel rules tested","status":"verified","next_action":null},
+  {"capability":"designated admin","source":"sumit.workplac@gmail.com","outcome":"verified-email trigger on signup/confirm/sign-in","status":"verified","next_action":null},
+  {"capability":"storage","source":"catalog-media (public), payment-assets (private)","outcome":"buckets + policies created; catalog-media created private because workspace blocks public buckets","status":"pending","next_action":"User makes catalog-media public in Supabase dashboard"},
+  {"capability":"google auth","source":"Supabase Google provider","outcome":"code unchanged (signInWithOAuth)","status":"pending","next_action":"User enables Google provider + redirect URLs in Supabase dashboard"},
+  {"capability":"records","source":"old database","outcome":"no export supplied","status":"pending","next_action":"User exports table CSVs"},
+  {"capability":"auth identities","source":"old database users","outcome":"no export supplied; users re-register","status":"pending","next_action":"User export or accept fresh sign-ups"},
+  {"capability":"push notifications","source":"Firebase puch-campu","outcome":"preserved; needs FIREBASE_SERVICE_ACCOUNT_JSON secret here","status":"pending","next_action":"Add secret"}
+]
