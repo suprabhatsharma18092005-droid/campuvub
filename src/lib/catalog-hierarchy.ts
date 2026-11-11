@@ -10,10 +10,9 @@ export function productMatchesSelection(product: Linked, selection: CatalogSelec
   return true;
 }
 
-/** Picking a category clears the deeper levels; picking the same one again keeps it. */
-export function chooseCategory(selection: CatalogSelection, id: string | undefined): CatalogSelection {
-  if (!id) return {};
-  return selection.category === id ? { category: id } : { category: id };
+/** Picking a level clears every level below it. */
+export function chooseCategory(_selection: CatalogSelection, id: string | undefined): CatalogSelection {
+  return id ? { category: id } : {};
 }
 
 export function chooseSubcategory(selection: CatalogSelection, id: string | undefined): CatalogSelection {
