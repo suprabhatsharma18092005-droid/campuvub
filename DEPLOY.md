@@ -17,7 +17,7 @@ How each part works on Vercel without `SUPABASE_SERVICE_ROLE_KEY`:
   `dispatchPushEvent`. A host that holds the service-role key and Firebase
   credentials (Lovable) sends directly. Any other host forwards only the event
   (type + id) with the caller's own session to
-  `https://campus-crate-rush.lovable.app/api/public/push-event` (override with
+  `https://campuvub.lovable.app/api/public/push-event` (override with
   `PUSH_EVENT_HOST_URL`). That host verifies the session, re-checks
   permission (order owner / admin, events newer than 10 minutes), looks up
   tokens and sends. Every send is awaited and failures never undo the order.

@@ -25,7 +25,7 @@ export type PushEventResult = { sent: number; devices?: number; error?: string }
 type EventContext = { supabase: SupabaseClient<Database>; userId: string };
 
 /** Public address of the trusted host; overridable per deployment. Not a credential. */
-const DEFAULT_TRUSTED_HOST = 'https://campus-crate-rush.lovable.app';
+const DEFAULT_TRUSTED_HOST = 'https://campuvub.lovable.app';
 /** Alerts can only be triggered for orders/broadcasts created moments ago. */
 export const EVENT_WINDOW_MS = 10 * 60 * 1000;
 

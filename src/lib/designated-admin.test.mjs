@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { PGlite } from "@electric-sql/pglite";
-import { readFile } from "node:fs/promises";
+import { migrationSection } from "./testing/migration-sql.mjs";
 
 const db = new PGlite();
 const target = "sumit.workplac@gmail.com";
@@ -13,7 +13,7 @@ beforeAll(async () => {
     CREATE TABLE auth.users (id integer PRIMARY KEY, email text, email_confirmed_at timestamptz, last_sign_in_at timestamptz);
     CREATE TABLE public.user_roles (user_id integer, role public.app_role, UNIQUE(user_id, role));
   `);
-  await db.exec(await readFile(new URL("../../drizzle/migrations/0000_restore_verified_admin_lifecycle.sql", import.meta.url), "utf8"));
+  await db.exec(await migrationSection("-- ===== Designated admin", "REVOKE EXECUTE ON FUNCTION public.validate_new_order()"));
 });
 afterAll(() => db.close());
 async function create(email, verified) {
