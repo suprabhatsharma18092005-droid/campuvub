@@ -9,6 +9,8 @@ import { useSession } from "@/lib/session";
 const TABLE_KEYS: Record<string, string[][]> = {
   products: [["products"]],
   categories: [["categories"]],
+  subcategories: [["subcategories"]],
+  brands: [["brands"]],
   banners: [["banners"], ["admin-banners"]],
   app_settings: [["app_settings"]],
 };
