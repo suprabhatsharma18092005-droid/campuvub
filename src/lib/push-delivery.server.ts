@@ -40,14 +40,13 @@ export async function safelySendPush(tokens: () => Promise<string[]>, payload: P
   }
 }
 
+/** Telegram backup is sent by the database (queue + retry), so it works from every host. */
 export async function sendNewOrderAlert(order: { id: string; total: number }) {
-  const { sendTelegramOrderAlert } = await import('./telegram.server');
-  const [push] = await Promise.all([safelySendPush(adminTokens, {
+  return safelySendPush(adminTokens, {
     title: 'New Order! 🚀',
     body: `Order #${order.id.slice(0, 8).toUpperCase()} placed. Total: ₹${Number(order.total).toFixed(0)}.`,
     path: '/admin',
-  }), sendTelegramOrderAlert(order.id)]);
-  return push;
+  });
 }
 
 export async function sendStatusAlert(order: { id: string; student_id: string; status: string }) {

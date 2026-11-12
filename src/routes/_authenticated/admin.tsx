@@ -392,7 +392,10 @@ function OrderCard({ order, name }: { order: OrderRow; name: string | undefined 
               <span className="grid h-10 w-10 place-items-center rounded-xl bg-muted text-xs">🛍️</span>
             )}
             <span className="min-w-0 flex-1 truncate text-sm">{i.name}</span>
-            <span className="text-sm font-semibold">×{i.qty}</span>
+            <span className="text-right text-xs text-muted-foreground">
+              {rupees(Number(i.price))} × {i.qty}
+              <span className="block text-sm font-semibold text-foreground">{rupees(Number(i.price) * i.qty)}</span>
+            </span>
           </li>
         ))}
       </ul>
