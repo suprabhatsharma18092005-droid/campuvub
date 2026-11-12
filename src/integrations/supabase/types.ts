@@ -433,6 +433,50 @@ export type Database = {
         }
         Relationships: []
       }
+      telegram_alert_queue: {
+        Row: {
+          attempts: number
+          created_at: string
+          delivered_at: string | null
+          id: string
+          last_attempt_at: string | null
+          last_error: string | null
+          order_id: string
+          request_id: number | null
+          status: string
+        }
+        Insert: {
+          attempts?: number
+          created_at?: string
+          delivered_at?: string | null
+          id?: string
+          last_attempt_at?: string | null
+          last_error?: string | null
+          order_id: string
+          request_id?: number | null
+          status?: string
+        }
+        Update: {
+          attempts?: number
+          created_at?: string
+          delivered_at?: string | null
+          id?: string
+          last_attempt_at?: string | null
+          last_error?: string | null
+          order_id?: string
+          request_id?: number | null
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "telegram_alert_queue_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: true
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       user_roles: {
         Row: {
           id: string
@@ -471,6 +515,8 @@ export type Database = {
         Args: { _device_id: string; _project_id: string; _token: string }
         Returns: undefined
       }
+      telegram_retry_alerts: { Args: never; Returns: undefined }
+      telegram_send_alert: { Args: { _queue_id: string }; Returns: undefined }
     }
     Enums: {
       app_role: "student" | "vendor" | "admin"
