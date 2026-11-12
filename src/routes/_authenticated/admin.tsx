@@ -34,6 +34,7 @@ import { rupees, STATUS_LABELS } from "@/lib/format";
 import { notifyBroadcast, updateOrderWithPush } from "@/lib/push.functions";
 import { brandsQuery, categoriesQuery, productsQuery, subcategoriesQuery } from "@/lib/queries";
 import { CatalogHierarchyManager } from "@/components/admin/CatalogHierarchyManager";
+import { OrderSiren } from "@/components/admin/OrderSiren";
 import { useRoles, useSession } from "@/lib/session";
 import { QR_BUCKET } from "@/lib/upi";
 import { catalogReference, removeCatalogImage, uploadCatalogImage } from "@/lib/catalog-media";
@@ -100,6 +101,10 @@ function Admin() {
   const orders = useQuery({
     queryKey: ["admin-orders"],
     enabled: Boolean(isStaff),
+    // Catch-up safety net if a realtime event is missed (sleep, network drop).
+    refetchInterval: 20_000,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
     queryFn: async (): Promise<OrderRow[]> => {
       const { data, error } = await supabase
         .from("orders")
@@ -157,7 +162,6 @@ function Admin() {
         const row = payload.new as { id: string };
         if (!seen.current.has(row.id)) {
           seen.current.add(row.id);
-          chime();
           toast.success("New order received!");
         }
         void queryClient.invalidateQueries({ queryKey: ["admin-orders"] });
@@ -257,6 +261,8 @@ function Admin() {
             {sound ? "Alerts on" : "Alerts off"}
           </Button>
         </div>
+
+        <OrderSiren orders={all} enabled={sound} />
 
         <Tabs defaultValue="dashboard" className="mt-4">
           <TabsList className="flex w-full justify-start gap-1 overflow-x-auto">
