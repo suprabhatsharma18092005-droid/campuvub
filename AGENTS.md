@@ -46,3 +46,4 @@ use the editor.
 - Designated-email admin grants use the existing database role table and verified-email auth lifecycle triggers, including sign-in updates; this prevents unverified signup privilege escalation.
 - Keep the profile-creation auth trigger and backfill missing remix profiles before device registration; push device ownership references profiles.
 - Backend is the user-connected Supabase project "Campu"; schema changes go through Lovable migrations (supabase/migrations), not the legacy drizzle folder, so one source of truth exists.
+- New-order alerts fan out from sendNewOrderAlert to FCM and an optional Telegram backup (skipped when unconfigured); the admin siren rings from fetched pending orders plus local acknowledgements, so missed realtime/push events are still caught on open or refetch.
