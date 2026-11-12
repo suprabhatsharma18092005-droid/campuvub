@@ -130,30 +130,6 @@ function Admin() {
     },
   });
 
-  function chime() {
-    if (!sound) return;
-    try {
-      const Ctx =
-        window.AudioContext ??
-        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-      const ctx = new Ctx();
-      [880, 1320].forEach((freq, i) => {
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.frequency.value = freq;
-        osc.type = "sine";
-        gain.gain.setValueAtTime(0.001, ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.35, ctx.currentTime + 0.02 + i * 0.22);
-        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3 + i * 0.22);
-        osc.connect(gain).connect(ctx.destination);
-        osc.start(ctx.currentTime + i * 0.22);
-        osc.stop(ctx.currentTime + 0.35 + i * 0.22);
-      });
-    } catch {
-      /* audio unavailable */
-    }
-  }
-
   useEffect(() => {
     if (!isStaff) return;
     const channel = supabase
