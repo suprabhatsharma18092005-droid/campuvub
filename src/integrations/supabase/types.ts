@@ -495,6 +495,53 @@ export type Database = {
         }
         Relationships: []
       }
+      vip_subscriptions: {
+        Row: {
+          amount: number
+          created_at: string
+          expires_at: string | null
+          id: string
+          reviewed_at: string | null
+          starts_at: string | null
+          status: string
+          updated_at: string
+          user_id: string
+          utr_number: string
+        }
+        Insert: {
+          amount?: number
+          created_at?: string
+          expires_at?: string | null
+          id?: string
+          reviewed_at?: string | null
+          starts_at?: string | null
+          status?: string
+          updated_at?: string
+          user_id: string
+          utr_number: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          expires_at?: string | null
+          id?: string
+          reviewed_at?: string | null
+          starts_at?: string | null
+          status?: string
+          updated_at?: string
+          user_id?: string
+          utr_number?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "vip_subscriptions_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
@@ -511,12 +558,14 @@ export type Database = {
         }
         Returns: boolean
       }
+      is_vip: { Args: { _user_id: string }; Returns: boolean }
       register_push_device: {
         Args: { _device_id: string; _project_id: string; _token: string }
         Returns: undefined
       }
       telegram_retry_alerts: { Args: never; Returns: undefined }
       telegram_send_alert: { Args: { _queue_id: string }; Returns: undefined }
+      vip_free_quick_used_today: { Args: { _user_id: string }; Returns: number }
     }
     Enums: {
       app_role: "student" | "vendor" | "admin"
