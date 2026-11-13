@@ -146,5 +146,6 @@ function HomeVip() {
 
 function HomeVipBanner() {
   const vip = useVip();
+  if (vip.loading || vip.isVip || vip.pending) return null;
   return <section className="px-4 pt-4"><VipHomeBanner vip={vip} /></section>;
 }

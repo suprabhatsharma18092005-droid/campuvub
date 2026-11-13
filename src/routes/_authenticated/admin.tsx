@@ -35,6 +35,7 @@ import { notifyBroadcast, updateOrderWithPush } from "@/lib/push.functions";
 import { brandsQuery, categoriesQuery, productsQuery, subcategoriesQuery } from "@/lib/queries";
 import { CatalogHierarchyManager } from "@/components/admin/CatalogHierarchyManager";
 import { OrderSiren } from "@/components/admin/OrderSiren";
+import { VipRequests } from "@/components/admin/VipRequests";
 import { useRoles, useSession } from "@/lib/session";
 import { QR_BUCKET } from "@/lib/upi";
 import { catalogReference, removeCatalogImage, uploadCatalogImage } from "@/lib/catalog-media";
@@ -248,6 +249,7 @@ function Admin() {
             </TabsTrigger>
             <TabsTrigger value="orders">Orders</TabsTrigger>
             <TabsTrigger value="stock">Inventory</TabsTrigger>
+            <TabsTrigger value="vip">VIP</TabsTrigger>
             <TabsTrigger value="blast">Blast</TabsTrigger>
             <TabsTrigger value="settings"><Settings2 className="mr-1 h-4 w-4" /> Settings</TabsTrigger>
           </TabsList>
@@ -342,6 +344,10 @@ function Admin() {
 
           <TabsContent value="stock" className="mt-4">
             <Inventory products={products.data ?? []} onToggle={toggleStock} />
+          </TabsContent>
+
+          <TabsContent value="vip" className="mt-4">
+            <VipRequests />
           </TabsContent>
 
           <TabsContent value="blast" className="mt-4">

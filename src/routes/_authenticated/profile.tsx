@@ -1,3 +1,4 @@
+import { Link } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, useNavigate, useSearch } from "@tanstack/react-router";
 import { Bell, LogOut, ShieldCheck } from "lucide-react";
@@ -136,6 +137,9 @@ function ProfilePage() {
       <div className="px-4 pt-5">
         <h1 className="font-display text-2xl font-bold">Your profile</h1>
         <p className="text-sm text-muted-foreground">{session?.user.email}</p>
+        <Link to="/vip" className="mt-4 flex items-center justify-between rounded-2xl border border-primary/40 bg-accent p-3 text-sm font-semibold text-primary">
+          <span>👑 Campu VIP membership</span><span>→</span>
+        </Link>
 
         {next === "checkout" && (
           <div className="mt-4 rounded-2xl border border-warning/40 bg-warning/15 p-3 text-sm">
