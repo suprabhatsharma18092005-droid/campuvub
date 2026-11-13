@@ -39,7 +39,7 @@ export function VipRequests() {
   async function review(id: string, status: "approved" | "rejected") {
     if (status === "rejected" && !confirm("Reject this VIP payment?")) return;
     const { error } = await supabase.from("vip_subscriptions").update({ status }).eq("id", id);
-    if (error) return toast.error(error.message);
+    if (error) { toast.error(error.message); return; }
     toast.success(status === "approved" ? "VIP activated for 30 days" : "Request rejected");
     void qc.invalidateQueries({ queryKey: ["admin-vip"] });
   }
