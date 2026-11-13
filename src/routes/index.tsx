@@ -14,6 +14,8 @@ import { productMatchesSelection, type CatalogSelection } from "@/lib/catalog-hi
 import { bannersQuery } from "@/components/HeroCarousel";
 import { DeliveryModeToggle } from "@/components/DeliveryModeToggle";
 import { productInMode, useDeliveryMode } from "@/lib/delivery";
+import { VipHomeBanner, VipPopup } from "@/components/VipBanner";
+import { useVip } from "@/lib/vip";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -86,6 +88,7 @@ function Home() {
 
   return (
     <AppShell>
+      <HomeVip />
       <section className="px-4 pt-4">
         <div className="relative">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -95,6 +98,7 @@ function Home() {
 
       {remaining > 0 && <section className="px-4 pt-4"><PreorderNotice remaining={remaining} time={settings.data?.["order_start_time"]} /></section>}
 
+      <HomeVipBanner />
       <section className="px-4 pt-4">
         <HeroCarousel />
       </section>
@@ -133,4 +137,14 @@ function Home() {
       </section>
     </AppShell>
   );
+}
+
+function HomeVip() {
+  const vip = useVip();
+  return <VipPopup vip={vip} />;
+}
+
+function HomeVipBanner() {
+  const vip = useVip();
+  return <section className="px-4 pt-4"><VipHomeBanner vip={vip} /></section>;
 }
