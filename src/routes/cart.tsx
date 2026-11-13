@@ -11,6 +11,8 @@ import { MODE_LABEL, deliveryInfoText } from "@/lib/delivery";
 import { useEnforceCartMode } from "@/lib/cart";
 import { deliveryFee, rupees } from "@/lib/format";
 import { SCHEDULED_MIN_ORDER, SCHEDULED_ORIGINAL_FEE, scheduledDeliveryFee } from "@/lib/scheduled-fee";
+import { useVip } from "@/lib/vip";
+import { VipCartHint } from "@/components/VipBanner";
 
 export const Route = createFileRoute("/cart")({
   head: () => ({
@@ -31,7 +33,8 @@ function CartPage() {
   const { settings, remaining } = usePreorder();
   const mode = useDeliveryMode();
   useEnforceCartMode();
-  const scheduled = mode === "sunday_tuesday" ? scheduledDeliveryFee(subtotal) : null;
+  const vip = useVip();
+  const scheduled = mode === "sunday_tuesday" ? scheduledDeliveryFee(subtotal, vip.isVip) : null;
 
   return (
     <AppShell>
@@ -97,8 +100,8 @@ function CartPage() {
                   <div className="mt-1 flex justify-between text-sm">
                     <span className="text-muted-foreground">Delivery fee</span>
                     <span className="font-semibold">
-                      <s className="mr-1.5 font-normal text-muted-foreground">{rupees(SCHEDULED_ORIGINAL_FEE)}</s>
-                      {scheduled.eligible ? rupees(scheduled.fee!) : "—"}
+                      <s className="mr-1.5 font-normal text-muted-foreground">{rupees(vip.isVip && scheduled.normalFee != null ? scheduled.normalFee : SCHEDULED_ORIGINAL_FEE)}</s>
+                      {scheduled.eligible ? (scheduled.fee === 0 ? "FREE" : rupees(scheduled.fee!)) : "—"}
                     </span>
                   </div>
                   {!scheduled.eligible ? (
@@ -108,11 +111,9 @@ function CartPage() {
                   ) : scheduled.next ? (
                     <div className="mt-3">
                       <p className="text-xs font-semibold text-primary">
-                        {scheduled.next.fee === 1
-                          ? `Add ₹${scheduled.next.addMore} more to unlock ₹1 Super Saver Delivery!`
-                          : scheduled.next.fee === 5
-                            ? `Add ₹${scheduled.next.addMore} more to get delivery at just ₹5!`
-                            : `Add ₹${scheduled.next.addMore} more to get delivery at ₹${scheduled.next.fee}!`}
+                        {scheduled.next.fee === 0
+                          ? `Add ₹${scheduled.next.addMore} more to get FREE delivery!`
+                          : `Add ₹${scheduled.next.addMore} more to get delivery at just ₹${scheduled.next.fee}!`}
                       </p>
                       <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-muted">
                         <div
@@ -123,7 +124,7 @@ function CartPage() {
                     </div>
                   ) : (
                     <p className="mt-3 inline-flex rounded-full bg-success/15 px-3 py-1 text-xs font-semibold text-success">
-                      🎉 ₹1 Super Saver Delivery Unlocked!
+                      {scheduled.fee === 0 ? "🎉 FREE VIP Delivery Unlocked!" : `🎉 Lowest delivery fee unlocked — just ₹${scheduled.fee}!`}
                     </p>
                   )}
                 </>
@@ -132,6 +133,7 @@ function CartPage() {
                   Delivery fee is added at checkout — {rupees(deliveryFee(settings.data, "UPI"))} with UPI{settings.data?.["night_mode_enabled"] === "true" ? " (night mode; cash unavailable)." : `, ${rupees(deliveryFee(settings.data, "COD"))} with cash.`}
                 </p>
               )}
+              <VipCartHint vip={vip} mode={mode} subtotal={subtotal} />
               {scheduled && !scheduled.eligible ? (
                 <Button disabled className="mt-4 h-12 w-full rounded-full bg-brand text-base font-semibold text-primary-foreground disabled:opacity-40">
                   Proceed to checkout

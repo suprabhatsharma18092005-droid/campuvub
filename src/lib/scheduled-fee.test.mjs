@@ -1,21 +1,27 @@
 import { expect, test } from "bun:test";
-import { scheduledDeliveryFee } from "./scheduled-fee.ts";
+import { quickDeliveryFee, scheduledDeliveryFee } from "./scheduled-fee.ts";
 
 test("₹98 is blocked and needs ₹1 more", () => {
   expect(scheduledDeliveryFee(98)).toMatchObject({ eligible: false, shortBy: 1, fee: null });
 });
-test("₹99 and ₹199 pay ₹15", () => {
-  expect(scheduledDeliveryFee(99)).toMatchObject({ eligible: true, fee: 15, next: { at: 200, addMore: 101 } });
-  expect(scheduledDeliveryFee(199).fee).toBe(15);
+test("normal: ₹99 to ₹299 pay ₹15", () => {
+  expect(scheduledDeliveryFee(99)).toMatchObject({ eligible: true, fee: 15, next: { at: 300, fee: 10, addMore: 201 } });
+  expect(scheduledDeliveryFee(299).fee).toBe(15);
 });
-test("₹200 and ₹299 pay ₹12", () => {
-  expect(scheduledDeliveryFee(200).fee).toBe(12);
-  expect(scheduledDeliveryFee(299)).toMatchObject({ fee: 12, next: { at: 300, addMore: 1 } });
+test("normal: ₹300 and above pay ₹10", () => {
+  expect(scheduledDeliveryFee(300)).toMatchObject({ fee: 10, next: null });
+  expect(scheduledDeliveryFee(800).fee).toBe(10);
 });
-test("₹300 and ₹499 pay ₹5", () => {
-  expect(scheduledDeliveryFee(300).fee).toBe(5);
-  expect(scheduledDeliveryFee(499)).toMatchObject({ fee: 5, next: { at: 500, addMore: 1 } });
+test("VIP: ₹99 to ₹299 pay ₹3", () => {
+  expect(scheduledDeliveryFee(150, true)).toMatchObject({ fee: 3, normalFee: 15 });
 });
-test("₹500 pays ₹1 with no further tier", () => {
-  expect(scheduledDeliveryFee(500)).toMatchObject({ fee: 1, next: null });
+test("VIP: ₹300 and above is free", () => {
+  expect(scheduledDeliveryFee(300, true)).toMatchObject({ fee: 0, normalFee: 10 });
+});
+test("VIP quick delivery is free for 2 orders of ₹99+ per day", () => {
+  expect(quickDeliveryFee(5, 99, true, 0)).toBe(0);
+  expect(quickDeliveryFee(5, 120, true, 1)).toBe(0);
+  expect(quickDeliveryFee(5, 120, true, 2)).toBe(5);
+  expect(quickDeliveryFee(5, 98, true, 0)).toBe(5);
+  expect(quickDeliveryFee(5, 200, false, 0)).toBe(5);
 });

@@ -18,7 +18,9 @@ import { MODE_LABEL, deliveryInfoText, productInMode } from "@/lib/delivery";
 import { useEnforceCartMode } from "@/lib/cart";
 import { deliveryFee, makeOtp, rupees } from "@/lib/format";
 import { settingsQuery } from "@/lib/queries";
-import { SCHEDULED_MIN_ORDER, SCHEDULED_ORIGINAL_FEE, scheduledDeliveryFee } from "@/lib/scheduled-fee";
+import { SCHEDULED_MIN_ORDER, SCHEDULED_ORIGINAL_FEE, quickDeliveryFee, scheduledDeliveryFee } from "@/lib/scheduled-fee";
+import { useVip } from "@/lib/vip";
+import { VipCartHint } from "@/components/VipBanner";
 import { isProfileComplete, useProfile, useSession } from "@/lib/session";
 import { placeOrderWithPush } from "@/lib/push.functions";
 import { cn } from "@/lib/utils";
@@ -74,8 +76,10 @@ function Checkout() {
     setPhone(profile.phone_number ?? "");
   }, [profile]);
 
-  const scheduled = deliveryMode === "sunday_tuesday" ? scheduledDeliveryFee(subtotal) : null;
-  const fee = scheduled ? (scheduled.fee ?? 0) : deliveryFee(settings.data, method);
+  const vip = useVip();
+  const scheduled = deliveryMode === "sunday_tuesday" ? scheduledDeliveryFee(subtotal, vip.isVip) : null;
+  const normalQuickFee = deliveryFee(settings.data, method);
+  const fee = scheduled ? (scheduled.fee ?? 0) : quickDeliveryFee(normalQuickFee, subtotal, vip.isVip, vip.freeUsedToday);
   const nightMode = settings.data?.["night_mode_enabled"] === "true";
   const total = subtotal + fee;
   const utrValid = /^[0-9]{12}$/.test(utr);
@@ -124,12 +128,16 @@ function Checkout() {
       return;
     }
     const orderMode = getDeliveryMode();
-    const sched = orderMode === "sunday_tuesday" ? scheduledDeliveryFee(subtotal) : null;
+    const fresh = (await vip.refetch()).data;
+    const nowMs = Date.now();
+    const freshVip = (fresh?.rows ?? []).some((r) => r.status === "approved" && r.starts_at && r.expires_at
+      && new Date(r.starts_at).getTime() <= nowMs && new Date(r.expires_at).getTime() > nowMs);
+    const sched = orderMode === "sunday_tuesday" ? scheduledDeliveryFee(subtotal, freshVip) : null;
     if (sched && !sched.eligible) {
       toast.error(`Minimum order is ₹${SCHEDULED_MIN_ORDER} for Sunday & Tuesday Special.`);
       return;
     }
-    const currentFee = sched ? (sched.fee ?? 0) : deliveryFee(current, method);
+    const currentFee = sched ? (sched.fee ?? 0) : quickDeliveryFee(deliveryFee(current, method), subtotal, freshVip, fresh?.freeUsedToday ?? 0);
     if (currentFee !== fee) {
       void settings.refetch();
       toast.error("Delivery fee changed. Review your total before ordering.");
@@ -430,18 +438,26 @@ function Checkout() {
             <div className="flex justify-between py-1 text-sm">
               <span className="text-muted-foreground">Delivery fee</span>
               <span className="font-semibold">
-                <s className="mr-1.5 font-normal text-muted-foreground">{rupees(SCHEDULED_ORIGINAL_FEE)}</s>
-                {scheduled.eligible ? rupees(fee) : "—"}
+                <s className="mr-1.5 font-normal text-muted-foreground">{rupees(vip.isVip && scheduled.normalFee != null ? scheduled.normalFee : SCHEDULED_ORIGINAL_FEE)}</s>
+                {scheduled.eligible ? (fee === 0 ? "FREE" : rupees(fee)) : "—"}
               </span>
             </div>
           ) : (
-            <Row label={`Delivery fee (${method})`} value={rupees(fee)} />
+            fee < normalQuickFee ? (
+              <div className="flex justify-between py-1 text-sm">
+                <span className="text-muted-foreground">Delivery fee ({method}) · VIP 👑</span>
+                <span className="font-semibold"><s className="mr-1.5 font-normal text-muted-foreground">{rupees(normalQuickFee)}</s>FREE</span>
+              </div>
+            ) : (
+              <Row label={`Delivery fee (${method})`} value={rupees(fee)} />
+            )
           )}
           {scheduled && !scheduled.eligible && (
             <p className="mt-1 text-xs font-semibold text-destructive">
               Minimum order is ₹{SCHEDULED_MIN_ORDER} for Sunday & Tuesday Special. Add ₹{scheduled.shortBy} more to place your order.
             </p>
           )}
+          <VipCartHint vip={vip} mode={deliveryMode} subtotal={subtotal} />
           <div className="my-2 h-px bg-border" />
           <Row label="Total payable" value={rupees(total)} bold />
         </div>
