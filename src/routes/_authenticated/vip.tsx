@@ -45,7 +45,7 @@ function VipPage() {
 
   function download() {
     const canvas = qrRef.current?.querySelector("canvas");
-    if (!canvas) return toast.error("QR code is still generating — try again.");
+    if (!canvas) { toast.error("QR code is still generating — try again."); return; }
     const a = document.createElement("a");
     a.href = canvas.toDataURL("image/png");
     a.download = `Campu-VIP-${price}.png`;
