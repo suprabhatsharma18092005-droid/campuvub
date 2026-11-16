@@ -11,6 +11,7 @@ import {
   emptyCoinLedger,
   parseCoinLedger,
   reconcileCoinLedger,
+  roundCoinValue,
   validateCoinPurchaseInput,
   type CoinLedgerV1,
 } from "@/lib/coins";
@@ -118,8 +119,9 @@ export function CoinRequests() {
       const nextBalances = { ...latest.ledger.balances };
       const nextTransactions = [...latest.ledger.transactions];
       if (decision === "approved") {
-        nextBalances[target.userId] =
-          Math.max(0, Math.floor(nextBalances[target.userId] ?? 0)) + target.coins;
+        nextBalances[target.userId] = roundCoinValue(
+          roundCoinValue(nextBalances[target.userId] ?? 0) + target.coins,
+        );
         nextTransactions.unshift({
           id: `topup:${target.id}`,
           userId: target.userId,

@@ -4,15 +4,10 @@ import { ArrowRight, CalendarDays, Sparkles, Zap } from "lucide-react";
 import scooterIllustration from "@/assets/quick-delivery-illustration.png";
 import { Button } from "@/components/ui/button";
 import { deliveryInfoText, setDeliveryMode, useDeliveryMode, type DeliveryMode } from "@/lib/delivery";
+import { deliveryFee, rupees } from "@/lib/format";
 import { settingsQuery } from "@/lib/queries";
-import {
-  SCHEDULED_MIN_ORDER,
-  VIP_QUICK_DISCOUNT_MIN_ORDER,
-  VIP_QUICK_DISCOUNT_PCT,
-  VIP_QUICK_FREE_PER_DAY,
-} from "@/lib/scheduled-fee";
+import { SCHEDULED_MIN_ORDER } from "@/lib/scheduled-fee";
 import { cn } from "@/lib/utils";
-import { useVip } from "@/lib/vip";
 
 export function DeliveryModeToggle({
   variant = "compact",
@@ -23,8 +18,9 @@ export function DeliveryModeToggle({
 }) {
   const mode = useDeliveryMode();
   const settings = useQuery(settingsQuery);
-  const vip = useVip();
-  const quickLeft = Math.max(0, VIP_QUICK_FREE_PER_DAY - vip.freeUsedToday);
+  const upiCharge = deliveryFee(settings.data, "UPI");
+  const codCharge = deliveryFee(settings.data, "COD");
+  const nightMode = settings.data?.["night_mode_enabled"] === "true";
 
   const cards: {
     value: DeliveryMode;
@@ -38,11 +34,9 @@ export function DeliveryModeToggle({
       value: "quick",
       label: "Quick Delivery",
       eta: deliveryInfoText("quick", settings.data),
-      offer: vip.isVip
-        ? quickLeft > 0
-          ? `${quickLeft}/${VIP_QUICK_FREE_PER_DAY} FREE today (any ₹) · then ${VIP_QUICK_DISCOUNT_PCT}% OFF ₹${VIP_QUICK_DISCOUNT_MIN_ORDER}+`
-          : `VIP ${VIP_QUICK_DISCOUNT_PCT}% OFF on ₹${VIP_QUICK_DISCOUNT_MIN_ORDER}+ (₹5 below ₹${VIP_QUICK_DISCOUNT_MIN_ORDER})`
-        : `Normal ₹5 · VIP: 1 FREE/day + ${VIP_QUICK_DISCOUNT_PCT}% OFF ₹${VIP_QUICK_DISCOUNT_MIN_ORDER}+`,
+      offer: nightMode
+        ? `UPI ${rupees(upiCharge)} · Night mode`
+        : `UPI ${rupees(upiCharge)} · Cash ${rupees(codCharge)}`,
       detail: "Get it Faster!",
       Icon: Zap,
     },
@@ -50,9 +44,7 @@ export function DeliveryModeToggle({
       value: "sunday_tuesday",
       label: "Sunday & Tuesday Special",
       eta: deliveryInfoText("sunday_tuesday", settings.data),
-      offer: vip.isVip
-        ? `VIP: ₹3 (₹${SCHEDULED_MIN_ORDER}–299) · FREE ₹300+`
-        : `Min ₹${SCHEDULED_MIN_ORDER} · ₹15 (₹99–299) · ₹10 (₹300+)`,
+      offer: `Min ₹${SCHEDULED_MIN_ORDER} · ₹15 (₹99–299) · ₹10 (₹300+)`,
       detail: "Special Offer",
       Icon: Sparkles,
     },

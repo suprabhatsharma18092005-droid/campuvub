@@ -11,6 +11,13 @@ export const COIN_LEDGER_SETTING_KEY = "coin_ledger_v1";
 export const COIN_NOTIFY_QUEUE_KEY = "coin_notify_queue_v1";
 export const COIN_PRESETS = [50, 100, 200, 500] as const;
 
+/** Rounds coin / rupee amounts cleanly to 2 decimal places so fractional totals (e.g. 52.5) deduct accurately. */
+export function roundCoinValue(value: number): number {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return Math.round(n * 100) / 100;
+}
+
 export type CoinNotificationJob =
   | {
       id: string;
@@ -209,7 +216,7 @@ export function parseCoinLedger(raw?: string | null): CoinLedgerV1 {
       balances:
         parsed.balances && typeof parsed.balances === "object"
           ? Object.fromEntries(
-              Object.entries(parsed.balances).map(([k, v]) => [k, Math.max(0, Math.floor(Number(v) || 0))]),
+              Object.entries(parsed.balances).map(([k, v]) => [k, roundCoinValue(Number(v) || 0)]),
             )
           : {},
       requests: Array.isArray(parsed.requests) ? parsed.requests : [],
@@ -272,7 +279,7 @@ export function parseCoinSuggestionRow(raw: string): CoinSuggestionEvent | null 
       typeof parsed.usage.orderId === "string" &&
       typeof parsed.usage.userId === "string"
     ) {
-      const coinsUsed = Math.floor(Number(parsed.usage.coinsUsed));
+      const coinsUsed = roundCoinValue(Number(parsed.usage.coinsUsed));
       if (!Number.isFinite(coinsUsed) || coinsUsed <= 0) return null;
       return {
         type: "coin_order_spend",
@@ -280,8 +287,8 @@ export function parseCoinSuggestionRow(raw: string): CoinSuggestionEvent | null 
           orderId: parsed.usage.orderId,
           userId: parsed.usage.userId,
           coinsUsed,
-          orderTotal: Math.max(0, Number(parsed.usage.orderTotal) || coinsUsed),
-          payableAmount: Math.max(0, Number(parsed.usage.payableAmount) || 0),
+          orderTotal: roundCoinValue(Number(parsed.usage.orderTotal) || coinsUsed),
+          payableAmount: roundCoinValue(Number(parsed.usage.payableAmount) || 0),
           paymentMethod:
             parsed.usage.paymentMethod === "UPI" || parsed.usage.paymentMethod === "COD"
               ? parsed.usage.paymentMethod
@@ -301,7 +308,7 @@ export function parseCoinSuggestionRow(raw: string): CoinSuggestionEvent | null 
         type: "coin_order_cancel_refund",
         orderId: parsed.orderId,
         userId: parsed.userId,
-        coinsRefunded: Math.max(0, Math.floor(Number(parsed.coinsRefunded) || 0)),
+        coinsRefunded: roundCoinValue(Number(parsed.coinsRefunded) || 0),
         createdAt: parsed.createdAt ?? new Date().toISOString(),
       };
     }
@@ -330,19 +337,19 @@ export function applyOrderCoinSpendToLedger(
       applied: false,
     };
   }
-  const currentBal = Math.max(0, Math.floor(ledger.balances[usage.userId] ?? 0));
-  const actualSpend = Math.min(currentBal, Math.max(0, Math.floor(usage.coinsUsed)));
+  const currentBal = roundCoinValue(ledger.balances[usage.userId] ?? 0);
+  const actualSpend = roundCoinValue(Math.min(currentBal, roundCoinValue(usage.coinsUsed)));
   if (actualSpend <= 0) {
     return { next: ledger, applied: false };
   }
   const nextBalances = {
     ...ledger.balances,
-    [usage.userId]: currentBal - actualSpend,
+    [usage.userId]: roundCoinValue(currentBal - actualSpend),
   };
   const finalUsage: CoinOrderUsage = {
     ...usage,
     coinsUsed: actualSpend,
-    payableAmount: Math.max(0, usage.orderTotal - actualSpend),
+    payableAmount: roundCoinValue(Math.max(0, usage.orderTotal - actualSpend)),
     refunded: false,
   };
   const tx: CoinTransaction = {
@@ -350,7 +357,7 @@ export function applyOrderCoinSpendToLedger(
     userId: usage.userId,
     type: "order_spend",
     coins: -actualSpend,
-    amountInr: actualSpend * COIN_VALUE_INR,
+    amountInr: roundCoinValue(actualSpend * COIN_VALUE_INR),
     note: `Used on order #${usage.orderId.slice(0, 8)}`,
     orderId: usage.orderId,
     createdAt: usage.createdAt,
@@ -389,15 +396,15 @@ export function applyOrderCoinRefundToLedger(
       refundedCoins: 0,
     };
   }
-  const currentBal = Math.max(0, Math.floor(ledger.balances[usage.userId] ?? 0));
-  const refundCoins = Math.floor(usage.coinsUsed);
+  const currentBal = roundCoinValue(ledger.balances[usage.userId] ?? 0);
+  const refundCoins = roundCoinValue(usage.coinsUsed);
   const nowIso = new Date().toISOString();
   const tx: CoinTransaction = {
     id: `refund:${orderId}`,
     userId: usage.userId,
     type: "order_refund",
     coins: refundCoins,
-    amountInr: refundCoins * COIN_VALUE_INR,
+    amountInr: roundCoinValue(refundCoins * COIN_VALUE_INR),
     note: `Refunded from cancelled order #${orderId.slice(0, 8)}`,
     orderId,
     createdAt: nowIso,
@@ -408,7 +415,7 @@ export function applyOrderCoinRefundToLedger(
       ...ledger,
       balances: {
         ...ledger.balances,
-        [usage.userId]: currentBal + refundCoins,
+        [usage.userId]: roundCoinValue(currentBal + refundCoins),
       },
       orderUsages: {
         ...ledger.orderUsages,
@@ -565,7 +572,7 @@ export function useCoinWallet() {
     eventsQuery.data?.orderStatuses,
   );
 
-  const balance = uid ? Math.max(0, Math.floor(ledger.balances[uid] ?? 0)) : 0;
+  const balance = uid ? roundCoinValue(ledger.balances[uid] ?? 0) : 0;
   const requests = uid
     ? ledger.requests
         .filter((r) => r.userId === uid)
@@ -590,7 +597,7 @@ export function useCoinWallet() {
   return {
     loading: settings.isLoading || eventsQuery.isLoading,
     balance,
-    balanceInr: balance * COIN_VALUE_INR,
+    balanceInr: roundCoinValue(balance * COIN_VALUE_INR),
     requests,
     pendingRequest,
     transactions,

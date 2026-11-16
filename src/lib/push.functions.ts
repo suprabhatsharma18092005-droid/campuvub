@@ -44,7 +44,7 @@ const orderInputSchema = z.object({
   delivery_address: z.string().min(1), phone_number: z.string().nullable(), delivery_otp: z.string(),
   status: z.enum(['payment_review', 'pending']), delivery_type: z.enum(['quick', 'sunday_tuesday']),
   delivery_date: z.string().nullable(),
-  coins_used: z.number().int().min(0).optional(),
+  coins_used: z.number().min(0).optional(),
 });
 
 function hasLiveAdminDb() {
@@ -144,12 +144,12 @@ export const placeOrderWithPush = createServerFn({ method: 'POST' })
       }
     }
 
-    const coinsUsed = Math.max(0, Math.floor(data.coins_used ?? 0));
-    if (coinsUsed > data.total) {
+    const { COIN_LEDGER_SETTING_KEY, parseCoinLedger, reconcileCoinLedger, roundCoinValue } = await import('@/lib/coins');
+    const coinsUsed = roundCoinValue(data.coins_used ?? 0);
+    if (coinsUsed > roundCoinValue(data.total)) {
       throw new Error('Coins used cannot exceed order total.');
     }
     if (coinsUsed > 0) {
-      const { COIN_LEDGER_SETTING_KEY, parseCoinLedger, reconcileCoinLedger } = await import('@/lib/coins');
       const [{ data: settingRow }, { data: sugRows }, { data: ordRows }] = await Promise.all([
         context.supabase.from('app_settings').select('value').eq('key', COIN_LEDGER_SETTING_KEY).maybeSingle(),
         context.supabase.from('suggestions').select('id, user_id, suggestion_text').eq('user_id', context.userId).order('created_at', { ascending: false }).limit(200),
@@ -158,9 +158,42 @@ export const placeOrderWithPush = createServerFn({ method: 'POST' })
       const base = parseCoinLedger(settingRow?.value);
       const orderStatuses = Object.fromEntries((ordRows ?? []).map((o) => [o.id, o.status])) as Record<string, string>;
       const merged = reconcileCoinLedger(base, sugRows ?? [], orderStatuses).ledger;
-      const availableCoins = Math.max(0, Math.floor(merged.balances[context.userId] ?? 0));
+      const availableCoins = roundCoinValue(merged.balances[context.userId] ?? 0);
       if (coinsUsed > availableCoins) {
         throw new Error(`Insufficient Campu Coins. Available balance: ${availableCoins} coins.`);
+      }
+    }
+
+    // Storefront VIP pricing is disabled: if the database still has an active
+    // vip_subscriptions row for this user, Postgres triggers
+    // (enforce_scheduled_order_fee / validate_new_order) expect discounted VIP fees
+    // and reject normal delivery fees. Clear stale active VIP rows before inserting.
+    const nowIso = new Date().toISOString();
+    const { data: activeVipRows } = await context.supabase
+      .from('vip_subscriptions')
+      .select('id')
+      .eq('user_id', context.userId)
+      .eq('status', 'approved')
+      .gt('expires_at', nowIso);
+
+    let vipRemainsActive = false;
+    if (activeVipRows && activeVipRows.length > 0) {
+      const vipIds = activeVipRows.map((r) => r.id);
+      if (hasLiveAdminDb()) {
+        const { supabaseAdmin } = await import('@/integrations/supabase/client.server');
+        const { error: vipClearErr } = await supabaseAdmin
+          .from('vip_subscriptions')
+          .update({ status: 'rejected' })
+          .in('id', vipIds);
+        vipRemainsActive = Boolean(vipClearErr);
+      } else {
+        // Succeeds under RLS when the caller is an admin.
+        const { data: clearedRows, error: vipClearErr } = await context.supabase
+          .from('vip_subscriptions')
+          .update({ status: 'rejected' })
+          .in('id', vipIds)
+          .select('id');
+        vipRemainsActive = Boolean(vipClearErr) || (clearedRows?.length ?? 0) < vipIds.length;
       }
     }
 
@@ -183,7 +216,16 @@ export const placeOrderWithPush = createServerFn({ method: 'POST' })
             .eq('id', prev.id);
         }
       }
-      throw new Error(error?.message ?? 'Could not place order');
+      const msg = error?.message ?? 'Could not place order';
+      if (
+        vipRemainsActive &&
+        (msg.includes('Delivery fee does not match') || msg.includes('Delivery fee changed'))
+      ) {
+        throw new Error(
+          'Your old VIP membership is still active in the database. Turn it off in Admin → VIP tab first, then place your order.',
+        );
+      }
+      throw new Error(msg);
     }
 
     let coinsPersistedRemotely = false;
@@ -204,8 +246,8 @@ export const placeOrderWithPush = createServerFn({ method: 'POST' })
           userId: context.userId,
           coinsUsed,
           orderTotal: data.total,
-          payableAmount: Math.max(0, data.total - coinsUsed),
-          paymentMethod: data.total - coinsUsed === 0 ? 'COINS' : data.payment_method,
+          payableAmount: roundCoinValue(Math.max(0, data.total - coinsUsed)),
+          paymentMethod: roundCoinValue(Math.max(0, data.total - coinsUsed)) === 0 ? 'COINS' : data.payment_method,
           refunded: false,
           createdAt: new Date().toISOString(),
         });

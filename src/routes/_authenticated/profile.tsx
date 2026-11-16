@@ -21,7 +21,6 @@ import { z } from "zod";
 
 import { AppShell } from "@/components/AppShell";
 import { ThemePicker } from "@/components/ThemePicker";
-import { formatVipDate } from "@/components/VipBanner";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -49,7 +48,7 @@ import {
 import { useCoinWallet } from "@/lib/coins";
 import { rupees } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { ADMIN_EMAIL, useVip } from "@/lib/vip";
+import { ADMIN_EMAIL } from "@/lib/vip";
 
 const profileSchema = z.object({
   full_name: z.string().trim().min(2, "Please enter your name").max(80),
@@ -182,14 +181,13 @@ function ProfilePage() {
     }
   }
 
-  const vip = useVip();
   const wallet = useCoinWallet();
   const isAdmin = Boolean(
     roles?.includes("admin") ||
       roles?.includes("vendor") ||
       session?.user.email?.toLowerCase() === ADMIN_EMAIL,
   );
-  const isRoyalProfile = isAdmin || vip.isVip;
+  const isRoyalProfile = isAdmin;
 
   return (
     <AppShell>
@@ -205,14 +203,13 @@ function ProfilePage() {
               <div className="min-w-0 flex-1">
                 <div className="inline-flex items-center gap-1 rounded-full border border-white/20 bg-white/10 px-2.5 py-0.5 text-[11px] font-bold text-white/95">
                   <Sparkles className="h-3 w-3 text-white/90" />
-                  {isAdmin ? "Admin / Store Owner 👑" : "Campu Royal Member"}
+                  Admin / Store Owner 👑
                 </div>
                 <h1 className="mt-1 truncate font-display text-xl font-extrabold text-white">
-                  {profile?.full_name || (isAdmin ? "Campu Master Admin" : "Your profile")}
+                  {profile?.full_name || "Campu Master Admin"}
                 </h1>
                 <p className="truncate text-xs text-white/80">
                   {session?.user.email}
-                  {vip.isVip && vip.expiresAt ? ` · VIP till ${formatVipDate(vip.expiresAt)}` : ""}
                 </p>
               </div>
             </div>
@@ -246,31 +243,22 @@ function ProfilePage() {
           </div>
         )}
 
-        {/* 2. VIP Membership */}
-        <Link
-          to="/vip"
-          className={cn(
-            "mt-4 flex items-center justify-between rounded-2xl border p-3.5 text-sm font-semibold shadow-card transition-colors",
-            "border-primary/40 bg-accent text-primary",
-          )}
-        >
-          <span>
-            {vip.isVip ? "👑 Campu Royal VIP Card & Benefits" : "👑 Campu VIP membership"}
-          </span>
-          <span>→</span>
-        </Link>
-
         {/* Campu Coins Wallet */}
         <Link
           to="/coins"
-          className="mt-3 flex items-center justify-between gap-3 rounded-2xl border border-border bg-card p-3.5 text-sm font-semibold shadow-card transition-colors hover:bg-muted/40"
+          className="mt-4 flex items-center justify-between gap-3 rounded-2xl border border-border bg-card p-3.5 text-sm font-semibold shadow-card transition-colors hover:bg-muted/40"
         >
           <span className="flex min-w-0 items-center gap-2.5">
             <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-accent text-primary">
               <Coins className="h-4 w-4" />
             </span>
             <span className="min-w-0">
-              <span className="block text-foreground">Campu Coins Wallet</span>
+              <span className="flex flex-wrap items-center gap-1.5 text-foreground">
+                <span>Campu Coins Wallet</span>
+                <span className="rounded-full bg-brand px-2 py-0.5 text-[10px] font-bold uppercase text-primary-foreground">
+                  Recommended
+                </span>
+              </span>
               <span className="block truncate text-xs font-normal text-muted-foreground tabular-nums">
                 Balance: <strong className="text-primary">{wallet.balance} Coins</strong> (
                 {rupees(wallet.balanceInr)}) · Min buy ₹50
@@ -335,16 +323,13 @@ function ProfilePage() {
                 <strong className="text-foreground">1. Delivery Schedule & Timings:</strong> Orders operate in India Standard Time (Asia/Kolkata). Quick Delivery items arrive within the displayed estimate; Sunday & Tuesday Special Delivery orders are delivered on the upcoming scheduled slot.
               </li>
               <li>
-                <strong className="text-foreground">2. Minimum Order &amp; Fees:</strong> Quick Delivery has no minimum order for normal users (standard delivery fees apply). Sunday &amp; Tuesday Special Delivery requires a ₹99 minimum order.
+                <strong className="text-foreground">2. Minimum Order &amp; Fees:</strong> Quick Delivery has no minimum order (standard ₹5 UPI / ₹8 COD delivery fees apply). Sunday &amp; Tuesday Special Delivery requires a ₹99 minimum order (₹15 on ₹99–₹299, ₹10 on ₹300+).
               </li>
               <li>
-                <strong className="text-foreground">3. Campu VIP Membership:</strong> The ₹149 pass is valid for 30 days from approval and includes 1 free Quick Delivery per day (on any order amount), an automatic 50% discount on additional Quick Deliveries of ₹50+ the same day (normal delivery charge below ₹50), and discounted Sunday &amp; Tuesday Special Delivery rates. Membership activates only after UTR verification.
+                <strong className="text-foreground">3. Payments & UTR Verification:</strong> All UPI payments require a valid 12-digit UTR/reference number. Duplicate or unverified UTR submissions will be rejected. Confirmed orders cannot be cancelled once dispatched.
               </li>
               <li>
-                <strong className="text-foreground">4. Payments & UTR Verification:</strong> All UPI payments require a valid 12-digit UTR/reference number. Duplicate or unverified UTR submissions will be rejected. Confirmed orders cannot be cancelled once dispatched.
-              </li>
-              <li>
-                <strong className="text-foreground">5. Hostel Delivery Policy:</strong> Ensure accurate phone number, hostel block, and room number before checkout so our campus rider can reach you promptly.
+                <strong className="text-foreground">4. Hostel Delivery Policy:</strong> Ensure accurate phone number, hostel block, and room number before checkout so our campus rider can reach you promptly.
               </li>
             </ul>
           )}

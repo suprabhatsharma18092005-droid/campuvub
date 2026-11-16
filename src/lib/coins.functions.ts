@@ -9,6 +9,7 @@ import {
   applyOrderCoinRefundToLedger,
   parseCoinLedger,
   reconcileCoinLedger,
+  roundCoinValue,
   validateCoinPurchaseInput,
   type CoinLedgerV1,
   type CoinTopupRequest,
@@ -242,8 +243,8 @@ export const reviewCoinPurchaseRequest = createServerFn({ method: "POST" })
     const nextTransactions = [...ledger.transactions];
 
     if (data.decision === "approved") {
-      const prevBal = Math.max(0, Math.floor(nextBalances[target.userId] ?? 0));
-      nextBalances[target.userId] = prevBal + target.coins;
+      const prevBal = roundCoinValue(nextBalances[target.userId] ?? 0);
+      nextBalances[target.userId] = roundCoinValue(prevBal + target.coins);
       nextTransactions.unshift({
         id: `topup:${target.id}`,
         userId: target.userId,

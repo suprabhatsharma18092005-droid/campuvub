@@ -12,12 +12,10 @@ import { PopularCategoriesSection } from "@/components/PopularCategoriesSection"
 import { PreorderNotice, usePreorder } from "@/components/PreorderNotice";
 import { ProductCard, type Product } from "@/components/ProductCard";
 import { Input } from "@/components/ui/input";
-import { VipHomeBanner, VipPopup } from "@/components/VipBanner";
 import { type CatalogSelection } from "@/lib/catalog-hierarchy";
 import { CATEGORY_MODES_KEY, isCategoryInMode, parseCategoryModes } from "@/lib/category-modes";
-import { MODE_LABEL, deliveryInfoText, productInMode, useDeliveryMode, type DeliveryMode } from "@/lib/delivery";
+import { MODE_LABEL, deliveryInfoText, productInMode, useDeliveryMode } from "@/lib/delivery";
 import { brandsQuery, categoriesQuery, productsQuery, subcategoriesQuery } from "@/lib/queries";
-import { useVip } from "@/lib/vip";
 
 const PAGE_SIZE = 24;
 const shuffledCache = new WeakMap<Product[], Product[]>();
@@ -158,7 +156,6 @@ function Home() {
 
   return (
     <AppShell>
-      <HomeVip />
       <section className="px-4 pt-4 lg:flex lg:items-center lg:justify-between lg:gap-6 lg:pt-5">
         <div className="hidden min-w-0 lg:block">
           <p className="text-xs font-bold uppercase tracking-wider text-primary">
@@ -189,10 +186,6 @@ function Home() {
         <NotificationPermissionBanner />
       </section>
 
-      <div className="lg:hidden">
-        <HomeVipBanner mode={mode} className="px-4 pt-4" />
-      </div>
-
       <section className="px-4 pt-4">
         {hasBanners ? (
           <div className="grid gap-4 lg:grid-cols-12 lg:items-center lg:gap-5">
@@ -201,13 +194,11 @@ function Home() {
             </div>
             <div className="hidden min-w-0 lg:col-span-4 lg:flex lg:flex-col lg:gap-3">
               <DeliveryModeToggle variant="showcase" />
-              <HomeVipBanner mode={mode} />
             </div>
           </div>
         ) : (
           <div className="hidden space-y-3 lg:block">
             <DeliveryModeToggle variant="showcase" className="lg:grid-cols-2 lg:gap-4" />
-            <HomeVipBanner mode={mode} />
           </div>
         )}
       </section>
@@ -262,20 +253,5 @@ function Home() {
         )}
       </section>
     </AppShell>
-  );
-}
-
-function HomeVip() {
-  const vip = useVip();
-  return <VipPopup vip={vip} />;
-}
-
-function HomeVipBanner({ mode, className }: { mode: DeliveryMode; className?: string }) {
-  const vip = useVip();
-  if (vip.loading || vip.pending) return null;
-  return (
-    <section className={className}>
-      <VipHomeBanner vip={vip} mode={mode} />
-    </section>
   );
 }

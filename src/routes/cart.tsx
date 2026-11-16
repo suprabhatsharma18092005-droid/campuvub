@@ -5,21 +5,14 @@ import { AppShell } from "@/components/AppShell";
 import { CatalogImage } from "@/components/CatalogImage";
 import { PreorderNotice, usePreorder } from "@/components/PreorderNotice";
 import { Button } from "@/components/ui/button";
-import { VipCartHint } from "@/components/VipBanner";
 import { useCart, useEnforceCartMode } from "@/lib/cart";
 import { MODE_LABEL, deliveryInfoText, useDeliveryMode } from "@/lib/delivery";
 import { deliveryFee, rupees } from "@/lib/format";
 import {
   SCHEDULED_MIN_ORDER,
   SCHEDULED_ORIGINAL_FEE,
-  VIP_QUICK_DISCOUNT_MIN_ORDER,
-  VIP_QUICK_DISCOUNT_PCT,
-  VIP_QUICK_FREE_PER_DAY,
-  quickDeliveryFee,
   scheduledDeliveryFee,
-  vipDiscountedQuickFee,
 } from "@/lib/scheduled-fee";
-import { useVip } from "@/lib/vip";
 
 export const Route = createFileRoute("/cart")({
   head: () => ({
@@ -40,22 +33,8 @@ function CartPage() {
   const { settings, remaining } = usePreorder();
   const mode = useDeliveryMode();
   useEnforceCartMode();
-  const vip = useVip();
-  const scheduled = mode === "sunday_tuesday" ? scheduledDeliveryFee(subtotal, vip.isVip) : null;
+  const scheduled = mode === "sunday_tuesday" ? scheduledDeliveryFee(subtotal) : null;
   const normalQuickUpi = deliveryFee(settings.data, "UPI");
-  const activeQuickUpiFee = quickDeliveryFee(normalQuickUpi, subtotal, vip.isVip, vip.freeUsedToday);
-  const isVipPostFreeDiscount =
-    mode === "quick" &&
-    vip.isVip &&
-    vip.freeUsedToday >= VIP_QUICK_FREE_PER_DAY &&
-    subtotal >= VIP_QUICK_DISCOUNT_MIN_ORDER &&
-    activeQuickUpiFee > 0 &&
-    activeQuickUpiFee < normalQuickUpi;
-  const isVipPostFreeBelowMin =
-    mode === "quick" &&
-    vip.isVip &&
-    vip.freeUsedToday >= VIP_QUICK_FREE_PER_DAY &&
-    subtotal < VIP_QUICK_DISCOUNT_MIN_ORDER;
 
   return (
     <AppShell>
@@ -126,9 +105,9 @@ function CartPage() {
                     <span className="text-muted-foreground">Delivery fee</span>
                     <span className="shrink-0 font-semibold">
                       <s className="mr-1.5 font-normal text-muted-foreground">
-                        {rupees(vip.isVip && scheduled.normalFee != null ? scheduled.normalFee : SCHEDULED_ORIGINAL_FEE)}
+                        {rupees(SCHEDULED_ORIGINAL_FEE)}
                       </s>
-                      {scheduled.eligible ? (scheduled.fee === 0 ? "FREE" : rupees(scheduled.fee!)) : "—"}
+                      {scheduled.eligible ? rupees(scheduled.fee!) : "—"}
                     </span>
                   </div>
                   {!scheduled.eligible ? (
@@ -138,9 +117,7 @@ function CartPage() {
                   ) : scheduled.next ? (
                     <div className="mt-3">
                       <p className="text-xs font-semibold text-primary">
-                        {scheduled.next.fee === 0
-                          ? `Add ₹${scheduled.next.addMore} more to get FREE delivery!`
-                          : `Add ₹${scheduled.next.addMore} more to get delivery at just ₹${scheduled.next.fee}!`}
+                        Add ₹{scheduled.next.addMore} more to get delivery at just ₹{scheduled.next.fee}!
                       </p>
                       <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-muted">
                         <div
@@ -151,46 +128,9 @@ function CartPage() {
                     </div>
                   ) : (
                     <p className="mt-3 inline-flex max-w-full flex-wrap rounded-2xl bg-success/15 px-3 py-1.5 text-xs font-semibold text-success">
-                      {scheduled.fee === 0 ? "🎉 FREE VIP Delivery Unlocked!" : `🎉 Lowest delivery fee unlocked — just ₹${scheduled.fee}!`}
+                      🎉 Lowest delivery fee unlocked — just ₹{scheduled.fee}!
                     </p>
                   )}
-                </>
-              ) : activeQuickUpiFee === 0 ? (
-                <div className="mt-1 flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 text-sm">
-                  <span className="min-w-0 text-muted-foreground">Delivery fee · VIP 👑</span>
-                  <span className="shrink-0 font-semibold text-success">
-                    <s className="mr-1.5 font-normal text-muted-foreground">
-                      {rupees(normalQuickUpi)}
-                    </s>
-                    FREE (1st order today)
-                  </span>
-                </div>
-              ) : isVipPostFreeDiscount ? (
-                <>
-                  <div className="mt-1 flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 text-sm">
-                    <span className="min-w-0 text-muted-foreground">Delivery fee · VIP {VIP_QUICK_DISCOUNT_PCT}% OFF 🏷️</span>
-                    <span className="shrink-0 font-semibold text-primary">
-                      <s className="mr-1.5 font-normal text-muted-foreground">
-                        {rupees(normalQuickUpi)}
-                      </s>
-                      {rupees(activeQuickUpiFee)} (UPI)
-                    </span>
-                  </div>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Daily {VIP_QUICK_FREE_PER_DAY} free quick order used — {VIP_QUICK_DISCOUNT_PCT}% VIP OFF applies on ₹{VIP_QUICK_DISCOUNT_MIN_ORDER}+ orders ({rupees(activeQuickUpiFee)} UPI{settings.data?.["night_mode_enabled"] === "true" ? " · night mode" : `, ${rupees(vipDiscountedQuickFee(deliveryFee(settings.data, "COD")))} COD`}).
-                  </p>
-                </>
-              ) : isVipPostFreeBelowMin ? (
-                <>
-                  <div className="mt-1 flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 text-sm">
-                    <span className="min-w-0 text-muted-foreground">Delivery fee (normal below ₹{VIP_QUICK_DISCOUNT_MIN_ORDER})</span>
-                    <span className="shrink-0 font-semibold">
-                      {rupees(normalQuickUpi)} (UPI)
-                    </span>
-                  </div>
-                  <p className="mt-1.5 text-xs font-medium text-primary">
-                    Add ₹{Math.ceil(VIP_QUICK_DISCOUNT_MIN_ORDER - subtotal)} more to unlock {VIP_QUICK_DISCOUNT_PCT}% VIP OFF ({rupees(vipDiscountedQuickFee(normalQuickUpi))} UPI{settings.data?.["night_mode_enabled"] === "true" ? "" : `, ${rupees(vipDiscountedQuickFee(deliveryFee(settings.data, "COD")))} COD`}).
-                  </p>
                 </>
               ) : (
                 <p className="mt-1 text-xs text-muted-foreground">
@@ -200,7 +140,6 @@ function CartPage() {
                     : `, ${rupees(deliveryFee(settings.data, "COD"))} with cash.`}
                 </p>
               )}
-              <VipCartHint vip={vip} mode={mode} subtotal={subtotal} />
               {scheduled && !scheduled.eligible ? (
                 <Button disabled className="mt-4 h-12 w-full rounded-full bg-brand text-base font-semibold text-primary-foreground disabled:opacity-40">
                   Proceed to checkout

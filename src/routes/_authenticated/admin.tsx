@@ -365,11 +365,11 @@ function Admin() {
 
   return (
     <AppShell>
-      <div className="px-4 pt-5">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
+      <div className="min-w-0 max-w-full overflow-x-clip px-4 pt-5">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-2">
             <h1 className="font-display text-2xl font-bold">Admin</h1>
-            <span className="inline-flex items-center gap-1 rounded-full border border-primary/35 bg-accent px-2.5 py-0.5 text-[11px] font-bold text-primary">
+            <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-primary/35 bg-accent px-2.5 py-0.5 text-[11px] font-bold text-primary">
               <Crown className="h-3 w-3" /> Store Owner
             </span>
           </div>
@@ -378,7 +378,7 @@ function Admin() {
             variant="outline"
             size="sm"
             onClick={() => setSound((s) => !s)}
-            className="rounded-full text-xs"
+            className="shrink-0 rounded-full text-xs"
           >
             {sound ? <Volume2 className="h-3.5 w-3.5" /> : <VolumeX className="h-3.5 w-3.5" />}
             {sound ? "Alerts on" : "Alerts off"}
@@ -391,7 +391,7 @@ function Admin() {
           enabled={sound}
         />
 
-        <Tabs value={activeTab} onValueChange={onTabChange} className="mt-4">
+        <Tabs value={activeTab} onValueChange={onTabChange} className="mt-4 min-w-0 max-w-full">
           <TabsList className="flex h-auto w-full justify-start gap-1 overflow-x-auto rounded-2xl border border-border/70 bg-card p-1.5 shadow-card md:flex-wrap">
             <TabsTrigger value="dashboard">Stats</TabsTrigger>
             <TabsTrigger value="queue">
@@ -578,7 +578,7 @@ function Admin() {
             </Tabs>
           </TabsContent>
 
-          <TabsContent value="stock" className="mt-4">
+          <TabsContent value="stock" className="mt-4 min-w-0 max-w-full">
             <Inventory products={products.data ?? []} onToggle={toggleStock} />
           </TabsContent>
 
@@ -1053,10 +1053,12 @@ function Inventory({
 
   function renderProductEditor() {
     return (
-      <div className="space-y-2.5 rounded-2xl border border-primary/25 bg-background/80 p-3.5">
-        <div className="flex items-center justify-between">
-          <h3 className="font-display text-base font-bold">{editing ? `Edit: ${editing.name}` : "Add product"}</h3>
-          <Button type="button" size="sm" variant="ghost" onClick={closeEditor} className="h-8 rounded-full px-2">
+      <div className="w-full min-w-0 max-w-full space-y-2.5 overflow-hidden rounded-2xl border border-primary/25 bg-background/80 p-3.5">
+        <div className="flex min-w-0 items-center justify-between gap-2">
+          <h3 className="min-w-0 flex-1 truncate font-display text-base font-bold">
+            {editing ? `Edit: ${editing.name}` : "Add product"}
+          </h3>
+          <Button type="button" size="sm" variant="ghost" onClick={closeEditor} className="h-8 shrink-0 rounded-full px-2">
             <X className="h-4 w-4" />
           </Button>
         </div>
@@ -1065,16 +1067,22 @@ function Inventory({
           id="product-name"
           value={form.name}
           onChange={(e) => setForm((current) => ({ ...current, name: e.target.value }))}
-          className="h-11 rounded-xl bg-card"
+          className="h-11 w-full min-w-0 rounded-xl bg-card"
         />
         <label className="block text-xs font-medium" htmlFor="product-description">Description</label>
-        <Textarea id="product-description" value={form.description} onChange={(e) => setForm((current) => ({ ...current, description: e.target.value }))} className="min-h-20 rounded-xl bg-card" />
-        <fieldset className="space-y-2 rounded-xl border border-border bg-card p-3">
+        <Textarea
+          id="product-description"
+          value={form.description}
+          onChange={(e) => setForm((current) => ({ ...current, description: e.target.value }))}
+          className="min-h-20 w-full min-w-0 rounded-xl bg-card"
+        />
+        <fieldset className="min-w-0 space-y-2 rounded-xl border border-border bg-card p-3">
           <legend className="px-1 text-xs font-medium">Delivery option (choose at least one)</legend>
           {([["quick", "Quick Delivery"], ["sunday_tuesday", "Sunday/Tuesday Delivery"]] as const).map(([value, label]) => (
-            <label key={value} className="flex items-center justify-between gap-3 text-sm">
-              <span>{label}</span>
+            <label key={value} className="flex min-w-0 items-center justify-between gap-3 text-sm">
+              <span className="min-w-0 truncate">{label}</span>
               <Switch
+                className="shrink-0"
                 checked={deliveryTypes.includes(value)}
                 onCheckedChange={(on) =>
                   setDeliveryTypes((cur) => (on ? Array.from(new Set([...cur, value])) : cur.filter((v) => v !== value)))
@@ -1085,65 +1093,94 @@ function Inventory({
         </fieldset>
         <label className="block text-xs font-medium">Category</label>
         {(categories.data ?? []).length === 0 ? (
-          <div className="flex items-center justify-between gap-2 rounded-xl border border-dashed border-border bg-card px-3 py-2.5 text-sm text-muted-foreground">
-            <span>Add a category first</span>
-            <Button type="button" size="sm" variant="outline" className="rounded-full" onClick={() => setSection("categories")}>
+          <div className="flex min-w-0 flex-wrap items-center justify-between gap-2 rounded-xl border border-dashed border-border bg-card px-3 py-2.5 text-sm text-muted-foreground">
+            <span className="min-w-0">Add a category first</span>
+            <Button type="button" size="sm" variant="outline" className="shrink-0 rounded-full" onClick={() => setSection("categories")}>
               Add category
             </Button>
           </div>
-        ) : <>
-          <Select value={form.category_id} onValueChange={(category_id) => setForm((current) => ({ ...current, category_id, subcategory_id: "", brand_id: "" }))}>
-            <SelectTrigger className="h-11 rounded-xl bg-card" aria-label="Category"><SelectValue placeholder="Choose category" /></SelectTrigger>
-            <SelectContent>{(categories.data ?? []).map((category) => <SelectItem key={category.id} value={category.id}>{category.name}</SelectItem>)}</SelectContent>
-          </Select>
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <label className="block text-xs font-medium">Subcategory <span className="text-muted-foreground">(optional)</span></label>
-              <Select
-                value={form.subcategory_id || NONE}
-                disabled={subcategoryOptions.length === 0}
-                onValueChange={(value) => setForm((current) => ({ ...current, subcategory_id: value === NONE ? "" : value, brand_id: "" }))}
-              >
-                <SelectTrigger className="h-11 rounded-xl bg-card" aria-label="Subcategory"><SelectValue placeholder={subcategoryOptions.length ? "None" : "No subcategories"} /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={NONE}>None</SelectItem>
-                  {subcategoryOptions.map((s) => <SelectItem key={s.id} value={s.id}>{s.name}{s.is_active ? "" : " (hidden)"}</SelectItem>)}
-                </SelectContent>
-              </Select>
+        ) : (
+          <>
+            <Select value={form.category_id} onValueChange={(category_id) => setForm((current) => ({ ...current, category_id, subcategory_id: "", brand_id: "" }))}>
+              <SelectTrigger className="h-11 w-full min-w-0 rounded-xl bg-card [&>span]:truncate" aria-label="Category">
+                <SelectValue placeholder="Choose category" />
+              </SelectTrigger>
+              <SelectContent>{(categories.data ?? []).map((category) => <SelectItem key={category.id} value={category.id}>{category.name}</SelectItem>)}</SelectContent>
+            </Select>
+            <div className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-2">
+              <div className="min-w-0">
+                <label className="mb-1 block text-xs font-medium">Subcategory <span className="text-muted-foreground">(optional)</span></label>
+                <Select
+                  value={form.subcategory_id || NONE}
+                  disabled={subcategoryOptions.length === 0}
+                  onValueChange={(value) => setForm((current) => ({ ...current, subcategory_id: value === NONE ? "" : value, brand_id: "" }))}
+                >
+                  <SelectTrigger className="h-11 w-full min-w-0 rounded-xl bg-card [&>span]:truncate" aria-label="Subcategory">
+                    <SelectValue placeholder={subcategoryOptions.length ? "None" : "No subcategories"} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={NONE}>None</SelectItem>
+                    {subcategoryOptions.map((s) => <SelectItem key={s.id} value={s.id}>{s.name}{s.is_active ? "" : " (hidden)"}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="min-w-0">
+                <label className="mb-1 block text-xs font-medium">Brand <span className="text-muted-foreground">(optional)</span></label>
+                <Select
+                  value={form.brand_id || NONE}
+                  disabled={brandOptions.length === 0}
+                  onValueChange={(value) => setForm((current) => ({ ...current, brand_id: value === NONE ? "" : value }))}
+                >
+                  <SelectTrigger className="h-11 w-full min-w-0 rounded-xl bg-card [&>span]:truncate" aria-label="Brand">
+                    <SelectValue placeholder={brandOptions.length ? "None" : "No brands"} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={NONE}>None</SelectItem>
+                    {brandOptions.map((b) => <SelectItem key={b.id} value={b.id}>{b.name}{b.is_active ? "" : " (hidden)"}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
-            <div>
-              <label className="block text-xs font-medium">Brand <span className="text-muted-foreground">(optional)</span></label>
-              <Select
-                value={form.brand_id || NONE}
-                disabled={brandOptions.length === 0}
-                onValueChange={(value) => setForm((current) => ({ ...current, brand_id: value === NONE ? "" : value }))}
-              >
-                <SelectTrigger className="h-11 rounded-xl bg-card" aria-label="Brand"><SelectValue placeholder={brandOptions.length ? "None" : "No brands"} /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={NONE}>None</SelectItem>
-                  {brandOptions.map((b) => <SelectItem key={b.id} value={b.id}>{b.name}{b.is_active ? "" : " (hidden)"}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
+          </>
+        )}
+        <div className="grid min-w-0 grid-cols-2 gap-2">
+          <div className="min-w-0">
+            <label className="mb-1 block text-xs font-medium" htmlFor="product-price">Price</label>
+            <Input
+              id="product-price"
+              value={form.price}
+              onChange={(e) => setForm((current) => ({ ...current, price: e.target.value }))}
+              inputMode="decimal"
+              className="h-11 w-full min-w-0 rounded-xl bg-card"
+            />
           </div>
-        </>}
-        <div className="grid grid-cols-2 gap-2">
-          <div><label className="block text-xs font-medium" htmlFor="product-price">Price</label><Input id="product-price" value={form.price} onChange={(e) => setForm((current) => ({ ...current, price: e.target.value }))} inputMode="decimal" className="h-11 rounded-xl bg-card" /></div>
-          <div><label className="block text-xs font-medium" htmlFor="product-stock">Stock Quantity</label><Input id="product-stock" value={form.stock} onChange={(e) => setForm((current) => ({ ...current, stock: e.target.value }))} inputMode="numeric" className="h-11 rounded-xl bg-card" /></div>
+          <div className="min-w-0">
+            <label className="mb-1 block text-xs font-medium" htmlFor="product-stock">Stock Quantity</label>
+            <Input
+              id="product-stock"
+              value={form.stock}
+              onChange={(e) => setForm((current) => ({ ...current, stock: e.target.value }))}
+              inputMode="numeric"
+              className="h-11 w-full min-w-0 rounded-xl bg-card"
+            />
+          </div>
         </div>
-        <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-input bg-card px-3 py-3 text-sm font-medium">
-          <Upload className="h-4 w-4" /> {photo?.name ?? (editing?.image_path || editing?.image_url ? "Replace product photo" : "Upload product photo")}
+        <label className="flex w-full min-w-0 cursor-pointer items-center gap-2 overflow-hidden rounded-xl border border-input bg-card px-3 py-3 text-sm font-medium">
+          <Upload className="h-4 w-4 shrink-0" />
+          <span className="min-w-0 flex-1 truncate">
+            {photo?.name ?? (editing?.image_path || editing?.image_url ? "Replace product photo" : "Upload product photo")}
+          </span>
           <input type="file" accept="image/*" className="sr-only" onChange={(event) => setPhoto(event.target.files?.[0] ?? null)} />
         </label>
-        <div className="flex gap-2">
+        <div className="flex min-w-0 flex-wrap gap-2">
           <Button
             disabled={saving}
             onClick={() => void saveProduct()}
-            className="h-11 flex-1 rounded-full bg-brand text-primary-foreground"
+            className="h-11 min-w-0 flex-1 rounded-full bg-brand text-primary-foreground"
           >
             {saving ? "Saving…" : editing ? "Update product" : "Save product"}
           </Button>
-          <Button variant="ghost" className="h-11 rounded-full" onClick={closeEditor}>
+          <Button variant="ghost" className="h-11 shrink-0 rounded-full" onClick={closeEditor}>
             Cancel
           </Button>
         </div>
@@ -1152,13 +1189,13 @@ function Inventory({
   }
 
   return (
-    <div className="space-y-3">
+    <div className="min-w-0 max-w-full space-y-3">
       <div className="grid grid-cols-2 gap-1.5 rounded-2xl border border-border/70 bg-card p-1.5 shadow-card">
         <button
           type="button"
           onClick={() => setSection("products")}
           className={cn(
-            "rounded-xl px-3 py-2 text-xs font-bold transition-colors",
+            "min-w-0 truncate rounded-xl px-3 py-2 text-xs font-bold transition-colors",
             section === "products"
               ? "bg-brand text-primary-foreground shadow-xs"
               : "text-muted-foreground hover:text-foreground",
@@ -1170,7 +1207,7 @@ function Inventory({
           type="button"
           onClick={() => setSection("categories")}
           className={cn(
-            "rounded-xl px-3 py-2 text-xs font-bold transition-colors",
+            "min-w-0 truncate rounded-xl px-3 py-2 text-xs font-bold transition-colors",
             section === "categories"
               ? "bg-brand text-primary-foreground shadow-xs"
               : "text-muted-foreground hover:text-foreground",
@@ -1185,7 +1222,7 @@ function Inventory({
       ) : (
         <>
           {adding ? (
-            <div className="rounded-3xl border border-border bg-card p-3 shadow-card">
+            <div className="w-full min-w-0 overflow-hidden rounded-3xl border border-border bg-card p-3 shadow-card">
               {renderProductEditor()}
             </div>
           ) : (
@@ -1197,47 +1234,49 @@ function Inventory({
             </Button>
           )}
 
-          <div className="grid gap-3 md:grid-cols-2">
+          <div className="grid min-w-0 grid-cols-1 gap-3 md:grid-cols-2">
           {products.map((p) => {
             const isEditingThis = editing?.id === p.id;
             return (
               <div
                 key={p.id}
                 className={cn(
-                  "rounded-3xl border bg-card p-3 shadow-card transition-colors",
-                  isEditingThis ? "border-primary/50" : "border-border",
+                  "w-full min-w-0 overflow-hidden rounded-3xl border bg-card p-3 shadow-card transition-colors",
+                  isEditingThis ? "border-primary/50 md:col-span-2" : "border-border",
                 )}
               >
-                <div className="flex items-center gap-3">
+                <div className="flex min-w-0 items-center gap-2 sm:gap-3">
                   {p.image_path || p.image_url ? (
-                    <CatalogImage source={p.image_path ? catalogReference(p.image_path) : p.image_url} alt={p.name} className="h-11 w-11 rounded-xl object-cover" />
+                    <CatalogImage source={p.image_path ? catalogReference(p.image_path) : p.image_url} alt={p.name} className="h-11 w-11 shrink-0 rounded-xl object-cover" />
                   ) : (
-                    <span className="grid h-11 w-11 place-items-center rounded-xl bg-muted">🛍️</span>
+                    <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-muted">🛍️</span>
                   )}
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-semibold">{p.name}</p>
                     <p className="text-xs text-muted-foreground">{rupees(p.price)}</p>
                   </div>
-                  <Button
-                    type="button"
-                    variant={isEditingThis ? "default" : "outline"}
-                    size="sm"
-                    onClick={() => toggleInlineEdit(p)}
-                    className={cn("h-8 rounded-full px-3 text-xs", isEditingThis && "bg-brand text-primary-foreground")}
-                  >
-                    {isEditingThis ? "Close" : "Edit"}
-                  </Button>
-                  <Switch checked={p.in_stock} onCheckedChange={(v) => void onToggle(p.id, v)} />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => void remove(p.id)}
-                    aria-label={`Delete ${p.name}`}
-                    className="h-9 w-9 rounded-full text-destructive"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    <Button
+                      type="button"
+                      variant={isEditingThis ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => toggleInlineEdit(p)}
+                      className={cn("h-8 shrink-0 rounded-full px-2.5 text-xs sm:px-3", isEditingThis && "bg-brand text-primary-foreground")}
+                    >
+                      {isEditingThis ? "Close" : "Edit"}
+                    </Button>
+                    <Switch className="shrink-0" checked={p.in_stock} onCheckedChange={(v) => void onToggle(p.id, v)} />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => void remove(p.id)}
+                      aria-label={`Delete ${p.name}`}
+                      className="h-8 w-8 shrink-0 rounded-full text-destructive sm:h-9 sm:w-9"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </div>
                 <div className="mt-2 flex items-center gap-2">
                   <span className="text-xs text-muted-foreground">{p.stock_quantity} in stock</span>
@@ -1248,7 +1287,7 @@ function Inventory({
                   )}
                 </div>
 
-                {isEditingThis && <div className="mt-3 border-t border-border/70 pt-3">{renderProductEditor()}</div>}
+                {isEditingThis && <div className="mt-3 min-w-0 overflow-hidden border-t border-border/70 pt-3">{renderProductEditor()}</div>}
               </div>
             );
           })}
