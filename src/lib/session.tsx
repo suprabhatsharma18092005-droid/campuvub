@@ -40,6 +40,7 @@ export type Profile = {
   phone_number: string | null;
   hostel_details: string | null;
   room_number: string | null;
+  fcm_token?: string | null;
 };
 
 export function useProfile() {
@@ -49,10 +50,11 @@ export function useProfile() {
   return useQuery({
     queryKey: ["profile", userId],
     enabled: Boolean(userId),
+    staleTime: 30_000,
     queryFn: async (): Promise<Profile | null> => {
       const { data, error } = await supabase
         .from("profiles")
-        .select("id, full_name, phone_number, hostel_details, room_number")
+        .select("id, full_name, phone_number, hostel_details, room_number, fcm_token")
         .eq("id", userId!)
         .maybeSingle();
       if (error) throw error;
@@ -72,6 +74,7 @@ export function useRoles() {
   return useQuery({
     queryKey: ["roles", userId],
     enabled: Boolean(userId),
+    staleTime: 60_000,
     queryFn: async (): Promise<string[]> => {
       const { data, error } = await supabase.from("user_roles").select("role").eq("user_id", userId!);
       if (error) throw error;

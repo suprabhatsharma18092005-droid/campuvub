@@ -73,7 +73,7 @@ export function HeroCarousel() {
           />
       ))}
       {items.length > 1 && (
-        <div className="absolute bottom-2 left-1/2 flex -translate-x-1/2 gap-1 rounded-full bg-background/70 px-2 py-1 backdrop-blur-md">
+        <div className="absolute bottom-2 left-1/2 flex -translate-x-1/2 gap-1 rounded-full bg-background/90 px-2 py-1">
           {items.map((banner, index) => (
             <button
               key={banner.id}
@@ -111,7 +111,7 @@ function BannerImage({ src, alt, priority, offset }: { src: string | undefined; 
       {...(priority ? { fetchPriority: "high" as const } : {})}
       onLoad={(e) => reveal(e.currentTarget)}
       className={cn(
-        "absolute inset-0 h-full w-full object-cover transition-[transform,opacity] duration-500 ease-out",
+        "absolute inset-0 h-full w-full object-cover transition-[transform,opacity] duration-300 ease-out will-change-transform",
         ready ? "opacity-100" : "opacity-0",
       )}
       style={{ transform: `translateX(${offset}%)` }}

@@ -23,6 +23,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { supabase } from "@/integrations/supabase/client";
+import { useCoinWallet } from "@/lib/coins";
 import { rupees, STATUS_LABELS, trackSteps } from "@/lib/format";
 import { PreorderNotice, usePreorder } from "@/components/PreorderNotice";
 import { countdownLabel, wasPlacedDuringPreorder } from "@/lib/ordering";
@@ -51,6 +52,8 @@ export const Route = createFileRoute("/_authenticated/orders/$id")({
 function OrderDetail() {
   const { id } = Route.useParams();
   const queryClient = useQueryClient();
+  const { session } = useSession();
+  const wallet = useCoinWallet();
   const cancelOrder = useServerFn(cancelOrderWithPush);
   const { settings: preorderSettings, remaining: preorderRemaining } = usePreorder();
   const appSettings = useQuery(settingsQuery);
@@ -167,10 +170,26 @@ function OrderDetail() {
       ? localReplacement
       : remoteReplacement;
 
+  const coinUsage = wallet.coinUsageForOrder(order.id);
+  const paidFullyWithCoins = Boolean(coinUsage && coinUsage.payableAmount === 0);
+
   async function doCancel() {
     setCancelling(true);
     try {
-      await cancelOrder({ data: { orderId: id } });
+      const res = await cancelOrder({ data: { orderId: id } });
+      if (coinUsage && coinUsage.coinsUsed > 0 && (res?.refundedCoins ?? 0) === 0 && session?.user.id) {
+        await supabase.from("suggestions").insert({
+          user_id: session.user.id,
+          user_name: "Student",
+          suggestion_text: JSON.stringify({
+            type: "coin_order_cancel_refund",
+            orderId: id,
+            userId: session.user.id,
+            coinsRefunded: coinUsage.coinsUsed,
+            createdAt: new Date().toISOString(),
+          }),
+        });
+      }
     } catch {
       toast.error("Could not cancel — the cancellation window may have closed.");
       return;
@@ -179,13 +198,16 @@ function OrderDetail() {
       setConfirmOpen(false);
     }
     toast.success(
-      isUpi
-        ? "Cancellation successful. Your refund will be processed to your original UPI payment method within 1 to 3 hours."
-        : "Cancellation successful.",
+      coinUsage && coinUsage.coinsUsed > 0
+        ? `Cancelled! ${coinUsage.coinsUsed} Campu Coins returned to your wallet.${coinUsage.payableAmount > 0 && isUpi ? " Remaining UPI refund in 1-3 hours." : ""}`
+        : isUpi
+          ? "Cancellation successful. Your refund will be processed to your original UPI payment method within 1 to 3 hours."
+          : "Cancellation successful.",
       { duration: 8000 },
     );
     void queryClient.invalidateQueries({ queryKey: ["order", id] });
     void queryClient.invalidateQueries({ queryKey: ["orders"] });
+    void wallet.refetch();
   }
 
 
@@ -237,13 +259,15 @@ function OrderDetail() {
               <div>
                 <p className="font-semibold">Order cancelled</p>
                 <p className="text-xs text-muted-foreground">
-                  {!isUpi
-                    ? "This order was cancelled."
-                    : !hasRefundFlow
-                      ? "Your payment reference could not be verified. Please contact support."
-                      : order.refund_status === "refunded"
-                        ? "This order was cancelled. Your UPI refund has been sent."
-                        : "This order was cancelled. Your UPI refund will be processed within 1 to 3 hours."}
+                  {coinUsage && coinUsage.coinsUsed > 0
+                    ? `${coinUsage.coinsUsed} Campu Coins have been refunded to your wallet.${coinUsage.payableAmount > 0 && hasRefundFlow ? (order.refund_status === "refunded" ? " Remaining UPI refund sent." : " Remaining UPI refund will be processed within 1 to 3 hours.") : ""}`
+                    : !isUpi
+                      ? "This order was cancelled."
+                      : !hasRefundFlow
+                        ? "Your payment reference could not be verified. Please contact support."
+                        : order.refund_status === "refunded"
+                          ? "This order was cancelled. Your UPI refund has been sent."
+                          : "This order was cancelled. Your UPI refund will be processed within 1 to 3 hours."}
                 </p>
               </div>
             </div>
@@ -286,7 +310,9 @@ function OrderDetail() {
                       </p>
                       {active && step === "payment_review" && (
                         <p className="text-xs text-muted-foreground">
-                          Verifying UTR {order.utr_number} — usually under 2 minutes.
+                          {paidFullyWithCoins
+                            ? `Paid with ${coinUsage?.coinsUsed} Campu Coins — confirming order.`
+                            : `Verifying UTR ${order.utr_number} — usually under 2 minutes.`}
                         </p>
                       )}
                     </div>
@@ -321,9 +347,15 @@ function OrderDetail() {
             <span>Delivery fee</span>
             <span>{rupees(order.delivery_fee)}</span>
           </div>
-          <div className="mt-1 flex justify-between font-display text-lg font-extrabold">
-            <span>Total</span>
-            <span>{rupees(order.total)}</span>
+          {coinUsage && coinUsage.coinsUsed > 0 && (
+            <div className="mt-1 flex justify-between text-sm font-semibold text-primary tabular-nums">
+              <span>Campu Coins applied ({coinUsage.coinsUsed})</span>
+              <span>-{rupees(coinUsage.coinsUsed)}</span>
+            </div>
+          )}
+          <div className="mt-1 flex justify-between font-display text-lg font-extrabold tabular-nums">
+            <span>{coinUsage ? "Net Paid" : "Total"}</span>
+            <span>{rupees(coinUsage ? coinUsage.payableAmount : order.total)}</span>
           </div>
           <p className="mt-3 text-xs text-muted-foreground">
             Delivering to {order.delivery_address}

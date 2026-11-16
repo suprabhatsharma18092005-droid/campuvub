@@ -68,3 +68,36 @@ export async function sendVipRequestAlert(req: {
     path: '/admin?tab=vip',
   });
 }
+
+export async function sendCoinRequestAlert(req: {
+  requestId: string;
+  customerName: string;
+  utrNumber: string;
+  coins: number;
+  amount: number;
+}) {
+  return safelySendPush(adminTokens, {
+    title: `🪙 New Coin Recharge Request! (${req.coins} Coins · ₹${Number(req.amount).toFixed(0)})`,
+    body: `${req.customerName} submitted UTR ${req.utrNumber}. Tap to verify & credit.`,
+    path: '/admin?tab=coins',
+  });
+}
+
+export async function sendCoinStatusAlert(info: {
+  userId: string;
+  coins: number;
+  status: 'approved' | 'rejected';
+}) {
+  return safelySendPush(() => deviceTokens([info.userId]), {
+    title:
+      info.status === 'approved'
+        ? `🪙 ${info.coins} Campu Coins Added!`
+        : 'Coin Recharge Rejected',
+    body:
+      info.status === 'approved'
+        ? `${info.coins} coins (₹${info.coins}) are now ready in your Campu Wallet.`
+        : `Your ₹${info.coins} coin recharge could not be verified. Contact support if needed.`,
+    path: '/coins',
+  });
+}
+

@@ -271,7 +271,7 @@ function ProductDetail() {
       </div>
 
       {/* Dedicated sticky action bar (bottom navigation is hidden on product pages) */}
-      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-border/60 bg-background/80 px-4 py-3 pb-safe shadow-float backdrop-blur-xl">
+      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-border/60 bg-background/95 px-4 py-3 pb-safe shadow-float">
         <div className="mx-auto flex max-w-2xl items-center gap-2.5">
           {!allowed ? (
             <Button

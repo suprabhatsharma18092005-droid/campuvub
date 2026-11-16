@@ -24,7 +24,7 @@ export function DeliveryModeToggle() {
   const mode = useDeliveryMode();
 
   return (
-    <section className="sticky top-11 z-20 -mx-4 bg-background/90 px-4 py-2 shadow-sm backdrop-blur-md">
+    <section className="sticky top-11 z-20 -mx-4 bg-background/95 px-4 py-2 shadow-sm">
       <div role="radiogroup" aria-label="Delivery type" className="grid grid-cols-2 gap-3 sm:gap-4">
         {OPTIONS.map(({ value, label, detail, Icon }) => {
           const active = mode === value;

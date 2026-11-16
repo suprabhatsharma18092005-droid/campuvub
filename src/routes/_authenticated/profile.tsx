@@ -5,6 +5,7 @@ import {
   Bell,
   ChevronDown,
   ChevronRight,
+  Coins,
   Crown,
   FileText,
   LogOut,
@@ -45,6 +46,8 @@ import {
   setUserThemeOverride,
   type AppThemeId,
 } from "@/lib/themes";
+import { useCoinWallet } from "@/lib/coins";
+import { rupees } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { ADMIN_EMAIL, useVip } from "@/lib/vip";
 
@@ -106,9 +109,9 @@ function ProfilePage() {
 
   useEffect(() => {
     if (typeof window !== "undefined" && "Notification" in window) {
-      setPushOn(Notification.permission === "granted");
+      setPushOn(Notification.permission === "granted" && Boolean(profile?.fcm_token));
     }
-  }, []);
+  }, [profile?.fcm_token]);
 
   useEffect(() => {
     if (!profile) return;
@@ -159,7 +162,10 @@ function ProfilePage() {
       const result = await enablePush((token) => savePushDevice(token, pushDeviceId()));
       if (result.status === "registered") {
         setPushOn(true);
-        toast.success("Notifications are on for this device");
+        if (session?.user.id) {
+          void queryClient.invalidateQueries({ queryKey: ["profile", session.user.id] });
+        }
+        toast.success("Notifications are on & saved to your profile");
         return;
       }
       const messages: Record<string, string> = {
@@ -177,6 +183,7 @@ function ProfilePage() {
   }
 
   const vip = useVip();
+  const wallet = useCoinWallet();
   const isAdmin = Boolean(
     roles?.includes("admin") ||
       roles?.includes("vendor") ||
@@ -252,6 +259,26 @@ function ProfilePage() {
           <span>→</span>
         </Link>
 
+        {/* Campu Coins Wallet */}
+        <Link
+          to="/coins"
+          className="mt-3 flex items-center justify-between gap-3 rounded-2xl border border-border bg-card p-3.5 text-sm font-semibold shadow-card transition-colors hover:bg-muted/40"
+        >
+          <span className="flex min-w-0 items-center gap-2.5">
+            <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-accent text-primary">
+              <Coins className="h-4 w-4" />
+            </span>
+            <span className="min-w-0">
+              <span className="block text-foreground">Campu Coins Wallet</span>
+              <span className="block truncate text-xs font-normal text-muted-foreground tabular-nums">
+                Balance: <strong className="text-primary">{wallet.balance} Coins</strong> (
+                {rupees(wallet.balanceInr)}) · Min buy ₹50
+              </span>
+            </span>
+          </span>
+          <span className="shrink-0 text-xs font-bold text-primary">Buy / Use →</span>
+        </Link>
+
         {/* 3. Color Theme (Floating Modal Trigger) */}
         <button
           type="button"
@@ -305,10 +332,10 @@ function ProfilePage() {
                 <strong className="text-foreground">1. Delivery Schedule & Timings:</strong> Orders operate in India Standard Time (Asia/Kolkata). Quick Delivery items arrive within the displayed estimate; Sunday & Tuesday Special Delivery orders are delivered on the upcoming scheduled slot.
               </li>
               <li>
-                <strong className="text-foreground">2. Minimum Order & Fees:</strong> Standard orders follow the active delivery mode minimum order value and fee schedule. Sunday & Tuesday Special Delivery requires a ₹99 minimum order.
+                <strong className="text-foreground">2. Minimum Order & Fees:</strong> Quick Delivery requires a minimum ₹50 order. Sunday & Tuesday Special Delivery requires a ₹99 minimum order.
               </li>
               <li>
-                <strong className="text-foreground">3. Campu VIP Membership:</strong> The ₹149 pass is valid for 30 days from approval and includes 2 free Quick Deliveries per day (no minimum order value), plus discounted Sunday & Tuesday Special Delivery rates. Membership activates only after UTR verification.
+                <strong className="text-foreground">3. Campu VIP Membership:</strong> The ₹149 pass is valid for 30 days from approval and includes 1 free Quick Delivery per day (minimum ₹50 order), plus discounted Sunday & Tuesday Special Delivery rates. Membership activates only after UTR verification.
               </li>
               <li>
                 <strong className="text-foreground">4. Payments & UTR Verification:</strong> All UPI payments require a valid 12-digit UTR/reference number. Duplicate or unverified UTR submissions will be rejected. Confirmed orders cannot be cancelled once dispatched.
@@ -322,7 +349,14 @@ function ProfilePage() {
 
         {/* 5. Notification Alerts */}
         <div className="mt-4 rounded-2xl border border-border bg-card p-4">
-          <p className="text-sm font-semibold">Order alerts</p>
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-sm font-semibold">Order alerts</p>
+            {profile?.fcm_token && (
+              <span className="rounded-full bg-success/15 px-2.5 py-0.5 text-[10px] font-bold text-success">
+                Saved to profile
+              </span>
+            )}
+          </div>
           <p className="mt-1 text-xs text-muted-foreground">
             Get a notification on this device when your order is accepted, on the way or delivered —
             even when the app is closed.
@@ -334,7 +368,7 @@ function ProfilePage() {
             onClick={turnOnNotifications}
           >
             <Bell className="mr-2 h-4 w-4" />
-            {pushOn ? "Notifications on — refresh device" : "Turn on notifications"}
+            {pushOn ? "Notifications on — refresh device" : "Turn on & save to profile"}
           </Button>
         </div>
 

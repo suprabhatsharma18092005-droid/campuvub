@@ -106,6 +106,8 @@ export const brandsQuery = queryOptions({
 
 export const settingsQuery = queryOptions({
   queryKey: ["app_settings"],
+  staleTime: 60_000,
+  placeholderData: keepPreviousData,
   queryFn: async (): Promise<Record<string, string>> => {
     const { data, error } = await supabase.from("app_settings").select("key, value");
     if (error) throw error;

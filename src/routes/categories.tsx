@@ -121,7 +121,7 @@ function Categories() {
       <AppShell>
         <div className="animate-product-enter">
           {/* Sticky Category Top Bar */}
-          <div className="sticky top-12 z-20 border-b border-border/60 bg-background/85 px-3 py-2.5 backdrop-blur-xl">
+          <div className="sticky top-12 z-20 border-b border-border/60 bg-background/95 px-3 py-2.5">
             <div className="flex items-center gap-2.5">
               <button
                 type="button"
@@ -324,7 +324,7 @@ function Categories() {
   return (
     <AppShell>
       {/* Sticky Categories Header & Quick Jump Strip */}
-      <section className="sticky top-12 z-20 border-b border-border/60 bg-background/85 px-4 py-2.5 backdrop-blur-xl">
+      <section className="sticky top-12 z-20 border-b border-border/60 bg-background/95 px-4 py-2.5">
         <div className="flex items-center justify-between">
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-wide text-primary">
@@ -385,14 +385,14 @@ function Categories() {
                         key={sub.id}
                         to="/categories"
                         search={{ category: cat.id, subcategory: sub.id }}
-                        className="royal-card group flex min-w-0 flex-col overflow-hidden rounded-2xl border border-border/70 bg-card p-2 shadow-card transition-all duration-200 hover:-translate-y-0.5 active:scale-95"
+                        className="royal-card card-cv group flex min-w-0 flex-col overflow-hidden rounded-2xl border border-border/70 bg-card p-2 shadow-card transition-colors duration-150 active:scale-95"
                       >
                         <div className="grid aspect-square w-full place-items-center overflow-hidden rounded-xl bg-accent/55">
                           {sub.image_url ? (
                             <CatalogImage
                               source={sub.image_url}
                               alt={sub.name}
-                              className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+                              className="h-full w-full object-cover"
                             />
                           ) : (
                             <span className="font-display text-2xl font-bold text-primary">
@@ -409,14 +409,14 @@ function Categories() {
                     <Link
                       to="/categories"
                       search={{ category: cat.id }}
-                      className="royal-card group flex min-w-0 flex-col overflow-hidden rounded-2xl border border-border/70 bg-card p-2 shadow-card transition-all duration-200 hover:-translate-y-0.5 active:scale-95"
+                      className="royal-card card-cv group flex min-w-0 flex-col overflow-hidden rounded-2xl border border-border/70 bg-card p-2 shadow-card transition-colors duration-150 active:scale-95"
                     >
                       <div className="grid aspect-square w-full place-items-center overflow-hidden rounded-xl bg-accent/55">
                         {cat.image_url ? (
                           <CatalogImage
                             source={cat.image_url}
                             alt={cat.name}
-                            className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+                            className="h-full w-full object-cover"
                           />
                         ) : (
                           <span className="font-display text-2xl font-bold text-primary">

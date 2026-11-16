@@ -1,8 +1,10 @@
-import { BellRing } from "lucide-react";
+import { Link } from "@tanstack/react-router";
+import { BellRing, Coins } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
-import { ringingOrderIds } from "@/lib/order-siren";
+import type { CoinTopupRequest } from "@/lib/coins";
+import { ringingCoinRequestIds, ringingOrderIds } from "@/lib/order-siren";
 
 const ACK_KEY = "campu-admin-acknowledged-orders";
 
@@ -48,12 +50,14 @@ function ring() {
   }
 }
 
-/** Keeps ringing (sound + flashing tab title) while recent new orders are unacknowledged. */
+/** Keeps ringing (sound + flashing tab title) while recent orders or coin requests are unacknowledged. */
 export function OrderSiren({
   orders,
+  coinRequests = [],
   enabled,
 }: {
   orders: { id: string; status: string; created_at: string }[];
+  coinRequests?: CoinTopupRequest[];
   enabled: boolean;
 }) {
   const [acks, setAcks] = useState<Set<string>>(new Set());
@@ -81,8 +85,13 @@ export function OrderSiren({
     return () => window.removeEventListener("pointerdown", unlock);
   }, []);
 
-  const ringing = useMemo(() => ringingOrderIds(orders, acks, now), [orders, acks, now]);
-  const active = ringing.length > 0;
+  const ringingOrders = useMemo(() => ringingOrderIds(orders, acks, now), [orders, acks, now]);
+  const ringingCoins = useMemo(
+    () => ringingCoinRequestIds(coinRequests, acks, now),
+    [coinRequests, acks, now],
+  );
+  const totalCount = ringingOrders.length + ringingCoins.length;
+  const active = totalCount > 0;
 
   useEffect(() => {
     if (!active || !enabled) return;
@@ -95,39 +104,75 @@ export function OrderSiren({
     if (!active) return;
     baseTitle.current = document.title;
     let on = false;
+    const label =
+      ringingCoins.length > 0 && ringingOrders.length === 0
+        ? `🪙 (${ringingCoins.length}) COIN REQUEST! - Campu`
+        : ringingCoins.length > 0
+          ? `🔴 (${totalCount}) ORDER + COIN ALERT! - Campu`
+          : `🔴 (${ringingOrders.length}) NEW ORDER! - Campu`;
     const t = setInterval(() => {
       on = !on;
-      document.title = on ? `🔴 (${ringing.length}) NEW ORDER! - Campu` : baseTitle.current;
+      document.title = on ? label : baseTitle.current;
     }, 1000);
     return () => {
       clearInterval(t);
       document.title = baseTitle.current;
     };
-  }, [active, ringing.length]);
+  }, [active, totalCount, ringingOrders.length, ringingCoins.length]);
 
   function acknowledge() {
     const next = new Set(acks);
-    ringing.forEach((id) => next.add(id));
+    ringingOrders.forEach((id) => next.add(id));
+    ringingCoins.forEach((id) => next.add(`coin:${id}`));
     const kept = [...next].slice(-500);
     localStorage.setItem(ACK_KEY, JSON.stringify(kept));
     setAcks(new Set(kept));
   }
 
   if (!active) return null;
+
+  const headline =
+    ringingOrders.length > 0 && ringingCoins.length > 0
+      ? `${ringingOrders.length} order${ringingOrders.length > 1 ? "s" : ""} & ${ringingCoins.length} coin recharge${ringingCoins.length > 1 ? "s" : ""} waiting!`
+      : ringingCoins.length > 0
+        ? `${ringingCoins.length} new coin recharge${ringingCoins.length > 1 ? "s" : ""} waiting!`
+        : `${ringingOrders.length} new order${ringingOrders.length > 1 ? "s" : ""} waiting!`;
+
   return (
-    <div className="sticky top-12 z-20 mt-3 flex items-center gap-3 rounded-2xl border-2 border-destructive bg-destructive/10 p-3 shadow-card animate-pulse">
-      <BellRing className="h-6 w-6 shrink-0 text-destructive" />
+    <div className="sticky top-12 z-20 mt-3 flex flex-wrap items-center gap-3 rounded-2xl border-2 border-destructive bg-destructive/10 p-3 shadow-card animate-pulse">
+      {ringingCoins.length > 0 && ringingOrders.length === 0 ? (
+        <Coins className="h-6 w-6 shrink-0 text-destructive" />
+      ) : (
+        <BellRing className="h-6 w-6 shrink-0 text-destructive" />
+      )}
       <div className="min-w-0 flex-1">
-        <p className="font-display text-sm font-bold text-destructive">
-          {ringing.length} new order{ringing.length > 1 ? "s" : ""} waiting!
-        </p>
+        <p className="font-display text-sm font-bold text-destructive">{headline}</p>
         <p className="text-xs text-muted-foreground">
-          {enabled ? (audioReady ? "Siren rings until you acknowledge." : "Tap anywhere to enable sound.") : "Alerts are off."}
+          {enabled
+            ? audioReady
+              ? "Siren rings until you acknowledge."
+              : "Tap anywhere to enable sound."
+            : "Alerts are off."}
         </p>
       </div>
-      <Button size="sm" onClick={acknowledge} className="rounded-full bg-destructive text-destructive-foreground hover:opacity-90">
-        Acknowledge
-      </Button>
+      <div className="flex items-center gap-2">
+        {ringingCoins.length > 0 && (
+          <Link
+            to="/admin"
+            search={{ tab: "coins" }}
+            className="inline-flex h-8 items-center rounded-full border border-destructive/40 bg-background px-3 text-xs font-bold text-destructive hover:bg-accent"
+          >
+            Review Coins
+          </Link>
+        )}
+        <Button
+          size="sm"
+          onClick={acknowledge}
+          className="rounded-full bg-destructive text-destructive-foreground hover:opacity-90"
+        >
+          Acknowledge
+        </Button>
+      </div>
     </div>
   );
 }

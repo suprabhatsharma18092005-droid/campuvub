@@ -18,7 +18,7 @@ export function CartBar() {
 
   return (
     <div className="pointer-events-none fixed bottom-[5.4rem] left-1/2 z-40 flex -translate-x-1/2 justify-center px-3">
-      <div className="animate-float-pill">
+      <div>
         <Link
           key={bump}
           to="/cart"

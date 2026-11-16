@@ -10,7 +10,16 @@ import { formatDeliveryDate, sundayTuesdayDeliveryDate, useDeliveryMode } from "
 import { MODE_LABEL, deliveryInfoText } from "@/lib/delivery";
 import { useEnforceCartMode } from "@/lib/cart";
 import { deliveryFee, rupees } from "@/lib/format";
-import { SCHEDULED_MIN_ORDER, SCHEDULED_ORIGINAL_FEE, VIP_QUICK_FREE_PER_DAY, quickDeliveryFee, scheduledDeliveryFee } from "@/lib/scheduled-fee";
+import {
+  QUICK_MIN_ORDER,
+  SCHEDULED_MIN_ORDER,
+  SCHEDULED_ORIGINAL_FEE,
+  VIP_QUICK_FREE_PER_DAY,
+  VIP_QUICK_MIN_ORDER,
+  quickDeliveryFee,
+  quickOrderMinimum,
+  scheduledDeliveryFee,
+} from "@/lib/scheduled-fee";
 import { useVip } from "@/lib/vip";
 import { VipCartHint } from "@/components/VipBanner";
 
@@ -35,6 +44,7 @@ function CartPage() {
   useEnforceCartMode();
   const vip = useVip();
   const scheduled = mode === "sunday_tuesday" ? scheduledDeliveryFee(subtotal, vip.isVip) : null;
+  const quickMin = mode === "quick" ? quickOrderMinimum(subtotal) : null;
 
   return (
     <AppShell>
@@ -128,6 +138,16 @@ function CartPage() {
                     </p>
                   )}
                 </>
+              ) : quickMin && !quickMin.eligible ? (
+                <>
+                  <div className="mt-1 flex justify-between text-sm">
+                    <span className="text-muted-foreground">Delivery fee</span>
+                    <span className="font-semibold text-muted-foreground">—</span>
+                  </div>
+                  <p className="mt-3 rounded-xl border border-destructive/40 bg-destructive/10 p-3 text-xs font-semibold text-destructive">
+                    Minimum order is ₹{QUICK_MIN_ORDER} for Quick Delivery. Add ₹{quickMin.shortBy} more to place your order.
+                  </p>
+                </>
               ) : quickDeliveryFee(deliveryFee(settings.data, "UPI"), subtotal, vip.isVip, vip.freeUsedToday) === 0 ? (
                 <div className="mt-1 flex items-center justify-between text-sm">
                   <span className="text-muted-foreground">Delivery fee · VIP 👑</span>
@@ -135,18 +155,18 @@ function CartPage() {
                     <s className="mr-1.5 font-normal text-muted-foreground">
                       {rupees(deliveryFee(settings.data, "UPI"))}
                     </s>
-                    FREE (No min order!)
+                    FREE (Min ₹{VIP_QUICK_MIN_ORDER})
                   </span>
                 </div>
               ) : (
                 <p className="mt-1 text-xs text-muted-foreground">
                   {vip.isVip && vip.freeUsedToday >= VIP_QUICK_FREE_PER_DAY
-                    ? `Daily ${VIP_QUICK_FREE_PER_DAY} free VIP quick deliveries used — standard fee applies (${rupees(deliveryFee(settings.data, "UPI"))} UPI).`
+                    ? `Daily ${VIP_QUICK_FREE_PER_DAY} free VIP quick ${VIP_QUICK_FREE_PER_DAY === 1 ? "delivery" : "deliveries"} used — standard fee applies (${rupees(deliveryFee(settings.data, "UPI"))} UPI).`
                     : `Delivery fee is added at checkout — ${rupees(deliveryFee(settings.data, "UPI"))} with UPI${settings.data?.["night_mode_enabled"] === "true" ? " (night mode; cash unavailable)." : `, ${rupees(deliveryFee(settings.data, "COD"))} with cash.`}`}
                 </p>
               )}
               <VipCartHint vip={vip} mode={mode} subtotal={subtotal} />
-              {scheduled && !scheduled.eligible ? (
+              {(scheduled && !scheduled.eligible) || (quickMin && !quickMin.eligible) ? (
                 <Button disabled className="mt-4 h-12 w-full rounded-full bg-brand text-base font-semibold text-primary-foreground disabled:opacity-40">
                   Proceed to checkout
                 </Button>

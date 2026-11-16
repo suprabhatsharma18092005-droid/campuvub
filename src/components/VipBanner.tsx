@@ -3,7 +3,7 @@ import { Crown, Sparkles, X } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { rupees } from "@/lib/format";
-import { SCHEDULED_MIN_ORDER, VIP_PRICE, VIP_QUICK_FREE_PER_DAY } from "@/lib/scheduled-fee";
+import { SCHEDULED_MIN_ORDER, VIP_PRICE, VIP_QUICK_FREE_PER_DAY, VIP_QUICK_MIN_ORDER } from "@/lib/scheduled-fee";
 import { cn } from "@/lib/utils";
 import type { useVip } from "@/lib/vip";
 
@@ -33,7 +33,7 @@ export function VipActiveBadge({ vip, className }: { vip: Vip; className?: strin
       <span className="flex items-center gap-2">
         <Sparkles className="h-3.5 w-3.5 shrink-0 text-white/90" />
         <span>
-          👑 Campu VIP Active ({left}/{VIP_QUICK_FREE_PER_DAY} Free Orders Left Today)
+          👑 Campu VIP Active ({left}/{VIP_QUICK_FREE_PER_DAY} Free {left === 1 ? "Order" : "Orders"} Left Today)
         </span>
       </span>
       <span className="shrink-0 text-[11px] font-semibold text-white/90">
@@ -79,7 +79,7 @@ export function VipCartHint({ vip, mode }: { vip: Vip; mode: string; subtotal?: 
       <span>
         {expired
           ? `Your Campu VIP has expired! Renew now for ${rupees(VIP_PRICE)} to continue free deliveries. →`
-          : `Get Campu VIP at ${rupees(VIP_PRICE)} & enjoy ${VIP_QUICK_FREE_PER_DAY} FREE quick deliveries every day! →`}
+          : `Get Campu VIP at ${rupees(VIP_PRICE)} & enjoy ${VIP_QUICK_FREE_PER_DAY} FREE quick ${VIP_QUICK_FREE_PER_DAY === 1 ? "delivery" : "deliveries"} daily (Min ₹${VIP_QUICK_MIN_ORDER})! →`}
       </span>
     </Link>
   );
@@ -107,7 +107,7 @@ export function VipHomeBanner({ vip }: { vip: Vip }) {
         <span className="block text-xs text-muted-foreground">
           {expired
             ? `Your Campu VIP has expired! Renew now for ${rupees(VIP_PRICE)} to continue free deliveries.`
-            : `Get Campu VIP at ${rupees(VIP_PRICE)} & enjoy ${VIP_QUICK_FREE_PER_DAY} FREE quick deliveries every day!`}
+            : `Get Campu VIP at ${rupees(VIP_PRICE)} & enjoy ${VIP_QUICK_FREE_PER_DAY} FREE quick ${VIP_QUICK_FREE_PER_DAY === 1 ? "delivery" : "deliveries"} daily (Min ₹${VIP_QUICK_MIN_ORDER})!`}
         </span>
       </span>
       <span className="rounded-full bg-brand px-3 py-1.5 text-xs font-bold text-primary-foreground">
@@ -165,11 +165,11 @@ export function VipPopup({ vip }: { vip: Vip }) {
         <p className="mt-1 text-sm text-muted-foreground">
           {expired
             ? `Your Campu VIP has expired! Renew now for ${rupees(VIP_PRICE)} to continue free deliveries.`
-            : `Get Campu VIP at ${rupees(VIP_PRICE)} & enjoy ${VIP_QUICK_FREE_PER_DAY} FREE quick deliveries every day!`}
+            : `Get Campu VIP at ${rupees(VIP_PRICE)} & enjoy ${VIP_QUICK_FREE_PER_DAY} FREE quick ${VIP_QUICK_FREE_PER_DAY === 1 ? "delivery" : "deliveries"} daily (Min ₹${VIP_QUICK_MIN_ORDER})!`}
         </p>
         <ul className="mt-4 space-y-2 rounded-2xl bg-muted/50 p-3 text-left text-sm">
           <li>
-            ⚡ <b>FREE</b> quick delivery — {VIP_QUICK_FREE_PER_DAY} orders a day (No min order!)
+            ⚡ <b>FREE</b> quick delivery — {VIP_QUICK_FREE_PER_DAY} {VIP_QUICK_FREE_PER_DAY === 1 ? "order" : "orders"} a day (Min order ₹{VIP_QUICK_MIN_ORDER})
           </li>
           <li>
             📦 Sunday/Tuesday: <b>₹3</b> on ₹{SCHEDULED_MIN_ORDER}–₹299{" "}

@@ -12,12 +12,12 @@ const TABLE_KEYS: Record<string, string[][]> = {
   subcategories: [["subcategories"]],
   brands: [["brands"]],
   banners: [["banners"], ["admin-banners"]],
-  app_settings: [["app_settings"]],
+  app_settings: [["app_settings"], ["admin-coins"]],
 };
 
 let mounted = 0;
 
-/** One shared realtime channel for catalogue + order changes. Mount once (AppShell). */
+/** One shared realtime channel for catalogue + order + wallet changes. Mount once (AppShell). */
 export function useLiveSync() {
   const queryClient = useQueryClient();
   const { session } = useSession();
@@ -31,7 +31,8 @@ export function useLiveSync() {
       };
     }
     let connectedOnce = false;
-    let channel = supabase.channel(`live-sync-${userId ?? "anon"}`);
+    const suffix = Math.random().toString(36).slice(2, 8);
+    let channel = supabase.channel(`live-sync-${userId ?? "anon"}-${suffix}`);
     for (const table of Object.keys(TABLE_KEYS)) {
       channel = channel.on("postgres_changes", { event: "*", schema: "public", table }, () => {
         for (const queryKey of TABLE_KEYS[table]!) void queryClient.invalidateQueries({ queryKey });
@@ -42,6 +43,7 @@ export function useLiveSync() {
       channel = channel.on("postgres_changes", { event: "*", schema: "public", table: "orders" }, (payload) => {
         const row = (payload.new ?? payload.old) as { id?: string } | null;
         void queryClient.invalidateQueries({ queryKey: ["orders"] });
+        void queryClient.invalidateQueries({ queryKey: ["coin-wallet-events"] });
         if (row?.id) void queryClient.invalidateQueries({ queryKey: ["order", row.id] });
       });
     }
@@ -59,6 +61,7 @@ export function useLiveSync() {
 
 /** Re-registers this device's push token on every app open for signed-in users. */
 export function usePushRegistration() {
+  const queryClient = useQueryClient();
   const { session } = useSession();
   const userId = session?.user.id;
 
@@ -66,10 +69,13 @@ export function usePushRegistration() {
     if (!userId) return;
     let cancelled = false;
     const run = async () => {
-      await refreshPushTokenSilently(async (token) => {
+      const saved = await refreshPushTokenSilently(async (token) => {
         if (cancelled) throw new Error("Registration cancelled");
         await savePushDevice(token, pushDeviceId());
       });
+      if (saved && !cancelled) {
+        void queryClient.invalidateQueries({ queryKey: ["profile", userId] });
+      }
     };
     void run();
     const onVisible = () => {
@@ -80,5 +86,5 @@ export function usePushRegistration() {
       cancelled = true;
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [userId]);
+  }, [queryClient, userId]);
 }

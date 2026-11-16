@@ -37,15 +37,17 @@ import { notifyBroadcast, updateOrderWithPush } from "@/lib/push.functions";
 import { brandsQuery, categoriesQuery, productsQuery, settingsQuery, subcategoriesQuery } from "@/lib/queries";
 import { type OrderReplacement } from "@/lib/replacements";
 import { CatalogHierarchyManager } from "@/components/admin/CatalogHierarchyManager";
+import { CoinRequests, coinAdminQuery, loadAndSyncAdminCoins } from "@/components/admin/CoinRequests";
 import { OrderReplacementManager } from "@/components/admin/OrderReplacementManager";
 import { OrderSiren } from "@/components/admin/OrderSiren";
 import { VipRequests, vipAdminQuery } from "@/components/admin/VipRequests";
+import { COIN_LEDGER_SETTING_KEY, applyOrderCoinRefundToLedger, type CoinOrderUsage } from "@/lib/coins";
 import { useRoles, useSession } from "@/lib/session";
 import { QR_BUCKET } from "@/lib/upi";
 import { catalogReference, removeCatalogImage, uploadCatalogImage } from "@/lib/catalog-media";
 import { cn } from "@/lib/utils";
 
-const ADMIN_TABS = new Set(["dashboard", "queue", "orders", "stock", "vip", "blast", "settings"]);
+const ADMIN_TABS = new Set(["dashboard", "queue", "orders", "stock", "vip", "coins", "blast", "settings"]);
 
 export const Route = createFileRoute("/_authenticated/admin")({
   validateSearch: z.object({ tab: z.string().optional() }),
@@ -123,6 +125,12 @@ function Admin() {
     ...vipAdminQuery,
     enabled: Boolean(isStaff),
     refetchInterval: 20_000,
+  });
+
+  const coinAdmin = useQuery({
+    ...coinAdminQuery,
+    enabled: Boolean(isStaff),
+    refetchInterval: 6_000,
   });
 
   const orders = useQuery({
@@ -214,8 +222,18 @@ function Admin() {
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "orders" }, () => {
         void queryClient.invalidateQueries({ queryKey: ["admin-orders"] });
       })
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "suggestions" }, () => {
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "suggestions" }, (payload) => {
+        const text = (payload.new as { suggestion_text?: string } | undefined)?.suggestion_text;
+        if (text?.includes('"coin_purchase_request"')) {
+          toast.info("🪙 New Campu Coins request received!", {
+            action: {
+              label: "Review",
+              onClick: () => setActiveTab("coins"),
+            },
+          });
+        }
         void queryClient.invalidateQueries({ queryKey: ["admin-replacement-suggestions"] });
+        void queryClient.invalidateQueries({ queryKey: ["admin-coins"] });
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "vip_subscriptions" }, (payload) => {
         if (payload.eventType === "INSERT") {
@@ -237,16 +255,36 @@ function Admin() {
 
   async function updateStatus(id: string, status: string) {
     setBusyOrderId(id);
+    let refundedCoins = 0;
     try {
       await updateOrder({ data: { orderId: id, status } });
+      if (status === "cancelled") {
+        const latestCoins = await loadAndSyncAdminCoins();
+        const { next, refundedCoins: refAmt } = applyOrderCoinRefundToLedger(latestCoins.ledger, id);
+        if (refAmt > 0) {
+          await supabase
+            .from("app_settings")
+            .upsert(
+              { key: COIN_LEDGER_SETTING_KEY, value: JSON.stringify(next) },
+              { onConflict: "key" },
+            );
+          refundedCoins = refAmt;
+        }
+      }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not update order");
       return;
     } finally {
       setBusyOrderId(null);
     }
-    toast.success(`Order marked ${STATUS_LABELS[status]}`);
+    toast.success(
+      refundedCoins > 0
+        ? `Order cancelled & ${refundedCoins} coins refunded`
+        : `Order marked ${STATUS_LABELS[status]}`,
+    );
     void queryClient.invalidateQueries({ queryKey: ["admin-orders"] });
+    void queryClient.invalidateQueries({ queryKey: ["admin-coins"] });
+    void queryClient.invalidateQueries({ queryKey: ["app_settings"] });
   }
 
   /** Marks delivered after OTP match and deducts the sold quantities from stock. */
@@ -313,6 +351,8 @@ function Admin() {
   const completed = modeFilteredOrders.filter((o) => o.status === "delivered");
   const cancelled = modeFilteredOrders.filter((o) => o.status === "cancelled");
   const pendingVipCount = (vipRequests.data ?? []).filter((r) => r.status === "pending").length;
+  const coinUsages = coinAdmin.data?.ledger.orderUsages ?? {};
+  const pendingCoinCount = (coinAdmin.data?.ledger.requests ?? []).filter((r) => r.status === "pending").length;
 
   function onTabChange(nextTab: string) {
     setActiveTab(nextTab);
@@ -345,7 +385,11 @@ function Admin() {
           </Button>
         </div>
 
-        <OrderSiren orders={all} enabled={sound} />
+        <OrderSiren
+          orders={all}
+          coinRequests={coinAdmin.data?.ledger.requests ?? []}
+          enabled={sound}
+        />
 
         <Tabs value={activeTab} onValueChange={onTabChange} className="mt-4">
           <TabsList className="flex w-full justify-start gap-1 overflow-x-auto">
@@ -364,6 +408,15 @@ function Admin() {
                 </span>
               )}
             </TabsTrigger>
+            <TabsTrigger value="coins" className="relative gap-1.5">
+              <span>Coins</span>
+              {pendingCoinCount > 0 && (
+                <span className="relative inline-flex items-center gap-1 rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-extrabold text-primary-foreground">
+                  <span className="h-1.5 w-1.5 animate-ping rounded-full bg-primary-foreground" />
+                  {pendingCoinCount}
+                </span>
+              )}
+            </TabsTrigger>
             <TabsTrigger value="blast">Blast</TabsTrigger>
             <TabsTrigger value="settings"><Settings2 className="mr-1 h-4 w-4" /> Settings</TabsTrigger>
           </TabsList>
@@ -376,19 +429,35 @@ function Admin() {
             {queue.length === 0 && (
               <Empty icon={Bell} text="No payments waiting for verification." />
             )}
-            {queue.map((o) => (
+            {queue.map((o) => {
+              const coinUsage = coinUsages[o.id];
+              const isFullCoins = coinUsage && coinUsage.payableAmount === 0;
+              return (
               <div
                 key={o.id}
                 className="rounded-3xl border-2 border-warning/50 bg-warning/10 p-4 shadow-card"
               >
-                <OrderCard order={o} name={names[o.student_id]} />
+                <OrderCard order={o} name={names[o.student_id]} coinUsage={coinUsage} />
                 <div className="mt-3 rounded-2xl bg-card p-3">
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                    UTR / Reference
-                  </p>
-                  <p className="font-display text-xl font-extrabold tracking-widest">
-                    {o.utr_number}
-                  </p>
+                  {isFullCoins ? (
+                    <>
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-primary">
+                        Paid 100% with Campu Coins
+                      </p>
+                      <p className="font-display text-base font-extrabold text-foreground">
+                        {coinUsage.coinsUsed} Coins deducted · ₹0 UPI needed
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                        UTR / Reference {coinUsage ? `(UPI Payable: ${rupees(coinUsage.payableAmount)})` : ""}
+                      </p>
+                      <p className="font-display text-xl font-extrabold tracking-widest">
+                        {o.utr_number}
+                      </p>
+                    </>
+                  )}
                 </div>
                 <div className="mt-3 flex gap-2">
                   <Button
@@ -409,7 +478,8 @@ function Admin() {
                   </Button>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </TabsContent>
 
       <TabsContent value="orders" className="mt-4 space-y-3">
@@ -451,6 +521,7 @@ function Admin() {
                     key={o.id}
                     order={o}
                     name={names[o.student_id]}
+                    coinUsage={coinUsages[o.id]}
                     products={products.data ?? []}
                     settings={appSettings.data}
                     fallbackReplacement={replacementSuggestions.data?.[o.id]}
@@ -468,6 +539,7 @@ function Admin() {
                     key={o.id}
                     order={o}
                     name={names[o.student_id]}
+                    coinUsage={coinUsages[o.id]}
                     products={products.data ?? []}
                     settings={appSettings.data}
                     fallbackReplacement={replacementSuggestions.data?.[o.id]}
@@ -482,7 +554,7 @@ function Admin() {
                 {completed.length === 0 && <Empty icon={Check} text="No completed orders yet." />}
                 {completed.map((o) => (
                   <div key={o.id} className="rounded-3xl border border-border bg-card p-4 shadow-card">
-                    <OrderCard order={o} name={names[o.student_id]} />
+                    <OrderCard order={o} name={names[o.student_id]} coinUsage={coinUsages[o.id]} />
                   </div>
                 ))}
               </TabsContent>
@@ -490,7 +562,7 @@ function Admin() {
               <TabsContent value="cancelled" className="mt-4 space-y-3">
                 {cancelled.length === 0 && <Empty icon={X} text="No cancelled orders." />}
                 {cancelled.map((o) => (
-                  <CancelledOrder key={o.id} order={o} name={names[o.student_id]} />
+                  <CancelledOrder key={o.id} order={o} name={names[o.student_id]} coinUsage={coinUsages[o.id]} />
                 ))}
               </TabsContent>
             </Tabs>
@@ -502,6 +574,10 @@ function Admin() {
 
           <TabsContent value="vip" className="mt-4">
             <VipRequests />
+          </TabsContent>
+
+          <TabsContent value="coins" className="mt-4">
+            <CoinRequests />
           </TabsContent>
 
           <TabsContent value="blast" className="mt-4">
@@ -517,7 +593,15 @@ function Admin() {
   );
 }
 
-function OrderCard({ order, name }: { order: OrderRow; name: string | undefined }) {
+function OrderCard({
+  order,
+  name,
+  coinUsage,
+}: {
+  order: OrderRow;
+  name: string | undefined;
+  coinUsage?: CoinOrderUsage | undefined;
+}) {
   const items = (order.cart_items as Item[]) ?? [];
   return (
     <div>
@@ -526,7 +610,7 @@ function OrderCard({ order, name }: { order: OrderRow; name: string | undefined 
           <p className="text-sm font-semibold">
             #{order.id.slice(0, 8)} ·{" "}
             <span className={cn(order.payment_method === "UPI" ? "text-primary" : "text-warning-foreground")}>
-              {order.payment_method}
+              {coinUsage?.payableAmount === 0 ? "Campu Coins" : order.payment_method}
             </span>
           </p>
           <p className="mt-1">
@@ -540,7 +624,14 @@ function OrderCard({ order, name }: { order: OrderRow; name: string | undefined 
             {order.delivery_address} · +91 {order.phone_number}
           </p>
         </div>
-        <span className="font-display font-bold">{rupees(order.total)}</span>
+        <div className="text-right">
+          <span className="font-display font-bold">{rupees(order.total)}</span>
+          {coinUsage && coinUsage.coinsUsed > 0 && (
+            <p className="text-[11px] font-semibold text-primary tabular-nums">
+              Coins -{coinUsage.coinsUsed} · Due {rupees(coinUsage.payableAmount)}
+            </p>
+          )}
+        </div>
       </div>
 
       <ul className="mt-3 space-y-2">
@@ -570,6 +661,7 @@ function OrderCard({ order, name }: { order: OrderRow; name: string | undefined 
 function ActiveOrder({
   order,
   name,
+  coinUsage,
   products,
   settings,
   fallbackReplacement,
@@ -579,6 +671,7 @@ function ActiveOrder({
 }: {
   order: OrderRow;
   name: string | undefined;
+  coinUsage?: CoinOrderUsage | undefined;
   products: ProductRow[];
   settings: Record<string, string> | undefined;
   fallbackReplacement?: OrderReplacement | null | undefined;
@@ -592,9 +685,9 @@ function ActiveOrder({
 
   return (
     <div className="rounded-3xl border border-border bg-card p-4 shadow-card">
-      <OrderCard order={order} name={name} />
+      <OrderCard order={order} name={name} coinUsage={coinUsage} />
 
-      {order.status === "payment_review" && order.utr_number && (
+      {order.status === "payment_review" && order.utr_number && coinUsage?.payableAmount !== 0 && (
         <div className="mt-3 rounded-2xl bg-muted/50 px-3 py-2">
           <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
             Submitted UTR
@@ -662,15 +755,24 @@ function ActiveOrder({
   );
 }
 
-function CancelledOrder({ order, name }: { order: OrderRow; name: string | undefined }) {
+function CancelledOrder({
+  order,
+  name,
+  coinUsage,
+}: {
+  order: OrderRow;
+  name: string | undefined;
+  coinUsage?: CoinOrderUsage | undefined;
+}) {
   const queryClient = useQueryClient();
   const [busy, setBusy] = useState(false);
   const isUpi = order.payment_method === "UPI";
+  const payableUpi = coinUsage ? coinUsage.payableAmount : Number(order.total);
   const wasAccepted =
     Boolean(order.accepted_at) ||
     order.refund_status === "pending" ||
     order.refund_status === "refunded";
-  const needsRefund = isUpi && wasAccepted;
+  const needsRefund = isUpi && wasAccepted && payableUpi > 0;
   const refunded = order.refund_status === "refunded";
 
   async function upload(file: File) {
@@ -712,8 +814,13 @@ function CancelledOrder({ order, name }: { order: OrderRow; name: string | undef
 
   return (
     <div className="rounded-3xl border border-border bg-card p-4 shadow-card">
-      <OrderCard order={order} name={name} />
-      {isUpi && !needsRefund && (
+      <OrderCard order={order} name={name} coinUsage={coinUsage} />
+      {coinUsage && coinUsage.coinsUsed > 0 && (
+        <p className="mt-3 rounded-2xl border border-primary/30 bg-accent px-3 py-2 text-xs font-semibold text-primary">
+          {coinUsage.coinsUsed} Campu Coins automatically refunded to student's wallet.
+        </p>
+      )}
+      {isUpi && !needsRefund && payableUpi > 0 && (
         <p className="mt-3 rounded-2xl border border-border/70 bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
           UPI payment was rejected before acceptance — no refund required.
         </p>
@@ -727,7 +834,7 @@ function CancelledOrder({ order, name }: { order: OrderRow; name: string | undef
           ) : (
             <>
               <p className="text-xs text-muted-foreground">
-                Order was accepted then cancelled. Refund {rupees(order.total)} by UPI, then upload the payment screenshot.
+                Order was accepted then cancelled. Refund {rupees(payableUpi)} by UPI, then upload the payment screenshot.
               </p>
               <label className="mt-2 flex h-11 cursor-pointer items-center justify-center gap-2 rounded-full bg-brand text-sm font-semibold text-primary-foreground">
                 <Upload className="h-4 w-4" />

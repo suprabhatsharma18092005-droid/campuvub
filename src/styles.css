@@ -178,6 +178,10 @@
 }
 
 @layer base {
+  html {
+    -webkit-tap-highlight-color: transparent;
+  }
+
   * {
     border-color: var(--color-border);
   }
@@ -189,6 +193,14 @@
     -webkit-font-smoothing: antialiased;
   }
 
+  button,
+  a,
+  input,
+  select,
+  textarea {
+    touch-action: manipulation;
+  }
+
   h1,
   h2,
   h3,
@@ -196,6 +208,11 @@
     font-family: var(--font-display);
     letter-spacing: -0.02em;
   }
+}
+
+@utility card-cv {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 230px;
 }
 
 @utility bg-brand {

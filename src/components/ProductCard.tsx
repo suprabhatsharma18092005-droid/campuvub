@@ -60,7 +60,7 @@ function ProductCardImpl({ product, priority = false }: { product: Product; prio
   return (
     <div
       className={cn(
-        "royal-card group relative flex min-w-0 flex-col overflow-hidden rounded-2xl border border-border/75 bg-card p-1.5 shadow-card transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-float sm:p-2",
+        "royal-card card-cv group relative flex min-w-0 flex-col overflow-hidden rounded-2xl border border-border/75 bg-card p-1.5 shadow-card transition-colors duration-150 hover:border-primary/40 sm:p-2",
         !product.in_stock && "opacity-60 grayscale",
       )}
     >
@@ -73,7 +73,7 @@ function ProductCardImpl({ product, priority = false }: { product: Product; prio
                 source={product.image_url}
                 alt={product.name}
                 priority={priority}
-                className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+                className="h-full w-full object-cover"
               />
             ) : (
               <span className="font-display text-3xl font-bold text-brand">
@@ -102,7 +102,7 @@ function ProductCardImpl({ product, priority = false }: { product: Product; prio
             toast.success(next ? "Saved to favorites" : "Removed from favorites");
           }}
           className={cn(
-            "absolute right-1.5 top-1.5 h-6 w-6 rounded-full bg-card/90 shadow-xs backdrop-blur-sm transition-transform active:scale-90 sm:h-7 sm:w-7",
+            "absolute right-1.5 top-1.5 h-6 w-6 rounded-full bg-card/95 shadow-xs transition-transform active:scale-90 sm:h-7 sm:w-7",
             saved ? "text-destructive" : "text-muted-foreground hover:text-foreground",
           )}
         >

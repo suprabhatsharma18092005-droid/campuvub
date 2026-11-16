@@ -44,6 +44,7 @@ const orderInputSchema = z.object({
   delivery_address: z.string().min(1), phone_number: z.string().nullable(), delivery_otp: z.string(),
   status: z.enum(['payment_review', 'pending']), delivery_type: z.enum(['quick', 'sunday_tuesday']),
   delivery_date: z.string().nullable(),
+  coins_used: z.number().int().min(0).optional(),
 });
 
 function hasLiveAdminDb() {
@@ -120,6 +121,14 @@ export const placeOrderWithPush = createServerFn({ method: 'POST' })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: z.input<typeof orderInputSchema>) => orderInputSchema.parse(input))
   .handler(async ({ data, context }) => {
+    const { QUICK_MIN_ORDER, SCHEDULED_MIN_ORDER } = await import('./scheduled-fee');
+    if (data.delivery_type === 'quick' && data.subtotal < QUICK_MIN_ORDER) {
+      throw new Error(`Minimum order is ₹${QUICK_MIN_ORDER} for Quick Delivery.`);
+    }
+    if (data.delivery_type === 'sunday_tuesday' && data.subtotal < SCHEDULED_MIN_ORDER) {
+      throw new Error(`Minimum order is ₹${SCHEDULED_MIN_ORDER} for Sunday & Tuesday Special.`);
+    }
+
     // Also validate live stock via caller Supabase client even if admin key isn't set.
     const { data: stockRows } = await context.supabase
       .from('products')
@@ -138,10 +147,32 @@ export const placeOrderWithPush = createServerFn({ method: 'POST' })
       }
     }
 
+    const coinsUsed = Math.max(0, Math.floor(data.coins_used ?? 0));
+    if (coinsUsed > data.total) {
+      throw new Error('Coins used cannot exceed order total.');
+    }
+    if (coinsUsed > 0) {
+      const { COIN_LEDGER_SETTING_KEY, parseCoinLedger, reconcileCoinLedger } = await import('@/lib/coins');
+      const [{ data: settingRow }, { data: sugRows }, { data: ordRows }] = await Promise.all([
+        context.supabase.from('app_settings').select('value').eq('key', COIN_LEDGER_SETTING_KEY).maybeSingle(),
+        context.supabase.from('suggestions').select('id, user_id, suggestion_text').eq('user_id', context.userId).order('created_at', { ascending: false }).limit(200),
+        context.supabase.from('orders').select('id, status').eq('student_id', context.userId).order('created_at', { ascending: false }).limit(200),
+      ]);
+      const base = parseCoinLedger(settingRow?.value);
+      const orderStatuses = Object.fromEntries((ordRows ?? []).map((o) => [o.id, o.status])) as Record<string, string>;
+      const merged = reconcileCoinLedger(base, sugRows ?? [], orderStatuses).ledger;
+      const availableCoins = Math.max(0, Math.floor(merged.balances[context.userId] ?? 0));
+      if (coinsUsed > availableCoins) {
+        throw new Error(`Insufficient Campu Coins. Available balance: ${availableCoins} coins.`);
+      }
+    }
+
     const reserved = await adjustStock(data.cart_items, 'deduct');
+    const { coins_used: _omitCoins, ...orderPayload } = data;
+    void _omitCoins;
     const { data: order, error } = await context.supabase
       .from('orders')
-      .insert({ ...data, student_id: context.userId })
+      .insert({ ...orderPayload, student_id: context.userId })
       .select('id')
       .single();
 
@@ -158,8 +189,42 @@ export const placeOrderWithPush = createServerFn({ method: 'POST' })
       throw new Error(error?.message ?? 'Could not place order');
     }
 
+    let coinsPersistedRemotely = false;
+    if (coinsUsed > 0 && hasLiveAdminDb()) {
+      try {
+        const { supabaseAdmin } = await import('@/integrations/supabase/client.server');
+        const { COIN_LEDGER_SETTING_KEY, applyOrderCoinSpendToLedger, parseCoinLedger, reconcileCoinLedger } = await import('@/lib/coins');
+        const [{ data: settingRow }, { data: sugRows }, { data: ordRows }] = await Promise.all([
+          supabaseAdmin.from('app_settings').select('value').eq('key', COIN_LEDGER_SETTING_KEY).maybeSingle(),
+          supabaseAdmin.from('suggestions').select('id, user_id, suggestion_text').order('created_at', { ascending: false }).limit(500),
+          supabaseAdmin.from('orders').select('id, status').order('created_at', { ascending: false }).limit(500),
+        ]);
+        const base = parseCoinLedger(settingRow?.value);
+        const orderStatuses = Object.fromEntries((ordRows ?? []).map((o) => [o.id, o.status])) as Record<string, string>;
+        const merged = reconcileCoinLedger(base, sugRows ?? [], orderStatuses).ledger;
+        const { next, applied } = applyOrderCoinSpendToLedger(merged, {
+          orderId: order.id,
+          userId: context.userId,
+          coinsUsed,
+          orderTotal: data.total,
+          payableAmount: Math.max(0, data.total - coinsUsed),
+          paymentMethod: data.total - coinsUsed === 0 ? 'COINS' : data.payment_method,
+          refunded: false,
+          createdAt: new Date().toISOString(),
+        });
+        if (applied) {
+          const { error: coinSaveErr } = await supabaseAdmin
+            .from('app_settings')
+            .upsert({ key: COIN_LEDGER_SETTING_KEY, value: JSON.stringify(next) }, { onConflict: 'key' });
+          coinsPersistedRemotely = !coinSaveErr;
+        }
+      } catch {
+        coinsPersistedRemotely = false;
+      }
+    }
+
     await dispatch({ type: 'new_order', orderId: order.id }, context);
-    return { id: order.id };
+    return { id: order.id, coinsUsed, coinsPersistedRemotely };
   });
 
 /** Kept for older callers; only the owner can announce their own recent order. */
@@ -213,6 +278,13 @@ export const updateOrderWithPush = createServerFn({ method: 'POST' })
       ) {
         await adjustStock(prevOrder.cart_items as OrderCartItem[], 'restore').catch(() => undefined);
       }
+      if (data.status === 'cancelled' && prevOrder?.status !== 'cancelled') {
+        const { refundOrderCoinsIfApplicable } = await import('./coins.functions');
+        const client = hasLiveAdminDb()
+          ? (await import('@/integrations/supabase/client.server')).supabaseAdmin
+          : (context.supabase as unknown as typeof import('@/integrations/supabase/client.server').supabaseAdmin);
+        await refundOrderCoinsIfApplicable(data.orderId, client).catch(() => 0);
+      }
     }
     await dispatch({ type: 'order_status', orderId: data.orderId }, context);
     return { ok: true };
@@ -237,8 +309,14 @@ export const cancelOrderWithPush = createServerFn({ method: 'POST' })
     if (order.status !== 'cancelled' && order.status !== 'delivered' && Array.isArray(order.cart_items)) {
       await adjustStock(order.cart_items as OrderCartItem[], 'restore').catch(() => undefined);
     }
+    let refundedCoins = 0;
+    if (hasLiveAdminDb()) {
+      const { refundOrderCoinsIfApplicable } = await import('./coins.functions');
+      const { supabaseAdmin } = await import('@/integrations/supabase/client.server');
+      refundedCoins = await refundOrderCoinsIfApplicable(data.orderId, supabaseAdmin).catch(() => 0);
+    }
     await dispatch({ type: 'order_status', orderId: data.orderId }, context);
-    return { ok: true };
+    return { ok: true, refundedCoins };
   });
 
 export const notifyOrderStatus = createServerFn({ method: 'POST' })

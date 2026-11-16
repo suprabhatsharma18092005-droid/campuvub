@@ -1,8 +1,8 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 
-import { Check, Copy, Download, Info } from "lucide-react";
+import { Check, Coins, Copy, Download, Info } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { QRCodeCanvas } from "qrcode.react";
 import { toast } from "sonner";
@@ -11,14 +11,24 @@ import { AppShell } from "@/components/AppShell";
 import { PreorderNotice, usePreorder } from "@/components/PreorderNotice";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import { supabase } from "@/integrations/supabase/client";
 import { useCart } from "@/lib/cart";
+import { makeCoinReceiptUtr, useCoinWallet } from "@/lib/coins";
 import { formatDeliveryDate, getDeliveryMode, sundayTuesdayDeliveryDate, useDeliveryMode } from "@/lib/delivery";
 import { MODE_LABEL, deliveryInfoText, productInMode } from "@/lib/delivery";
 import { useEnforceCartMode } from "@/lib/cart";
 import { deliveryFee, makeOtp, rupees } from "@/lib/format";
 import { settingsQuery } from "@/lib/queries";
-import { SCHEDULED_MIN_ORDER, SCHEDULED_ORIGINAL_FEE, VIP_QUICK_FREE_PER_DAY, quickDeliveryFee, scheduledDeliveryFee } from "@/lib/scheduled-fee";
+import {
+  QUICK_MIN_ORDER,
+  SCHEDULED_MIN_ORDER,
+  SCHEDULED_ORIGINAL_FEE,
+  VIP_QUICK_FREE_PER_DAY,
+  quickDeliveryFee,
+  quickOrderMinimum,
+  scheduledDeliveryFee,
+} from "@/lib/scheduled-fee";
 import { useVip } from "@/lib/vip";
 import { VipCartHint } from "@/components/VipBanner";
 import { isProfileComplete, useProfile, useSession } from "@/lib/session";
@@ -78,29 +88,49 @@ function Checkout() {
   }, [profile]);
 
   const vip = useVip();
+  const wallet = useCoinWallet();
+  const [useCoins, setUseCoins] = useState(false);
+  const [coinAmountInput, setCoinAmountInput] = useState("");
   const scheduled = deliveryMode === "sunday_tuesday" ? scheduledDeliveryFee(subtotal, vip.isVip) : null;
+  const quickMin = deliveryMode === "quick" ? quickOrderMinimum(subtotal) : null;
   const normalQuickFee = deliveryFee(settings.data, method);
   const fee = scheduled ? (scheduled.fee ?? 0) : quickDeliveryFee(normalQuickFee, subtotal, vip.isVip, vip.freeUsedToday);
   const nightMode = settings.data?.["night_mode_enabled"] === "true";
   const total = subtotal + fee;
+  const maxUsableCoins = Math.min(wallet.balance, Math.max(0, Math.floor(total)));
+  const requestedCoins =
+    coinAmountInput.trim() === ""
+      ? maxUsableCoins
+      : Math.max(0, Math.min(maxUsableCoins, Math.floor(Number(coinAmountInput) || 0)));
+  const coinsUsed = useCoins && maxUsableCoins > 0 ? requestedCoins : 0;
+  const payableTotal = Math.max(0, total - coinsUsed);
+  const paidFullyByCoins = coinsUsed > 0 && payableTotal === 0;
   const utrValid = /^[0-9]{12}$/.test(utr);
   const canPlace =
     items.length > 0 &&
     (!scheduled || scheduled.eligible) &&
+    (!quickMin || quickMin.eligible) &&
     complete &&
     !editingAddress &&
     Boolean(hostel && room && phone) &&
-    (method === "COD" || utrValid) &&
-    !busy && !settings.isLoading && !settings.isError && !(nightMode && method === "COD");
+    (paidFullyByCoins || method === "COD" || utrValid) &&
+    !busy && !settings.isLoading && !settings.isError && !(nightMode && !paidFullyByCoins && method === "COD");
 
   const upiId = settings.data?.["upi_id"] ?? "campu@upi";
-  // Dynamic per-order QR: encodes the UPI pay link with the live total pre-filled.
-  const upiQrValue = `upi://pay?pa=${upiId}&pn=${encodeURIComponent("Campu")}&am=${total}&cu=INR&tn=${encodeURIComponent("Campu Order")}`;
+  // Dynamic per-order QR: encodes the live remaining payable total after Campu Coins.
+  const upiQrValue = `upi://pay?pa=${upiId}&pn=${encodeURIComponent("Campu")}&am=${payableTotal}&cu=INR&tn=${encodeURIComponent("Campu Order")}`;
   const qrWrapRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (nightMode && method === "COD") setMethod("UPI");
   }, [nightMode, method]);
+
+  useEffect(() => {
+    if (useCoins && wallet.balance === 0) {
+      setUseCoins(false);
+      setCoinAmountInput("");
+    }
+  }, [useCoins, wallet.balance]);
 
 
   async function saveAddress() {
@@ -138,6 +168,10 @@ function Checkout() {
       toast.error(`Minimum order is ₹${SCHEDULED_MIN_ORDER} for Sunday & Tuesday Special.`);
       return;
     }
+    if (orderMode === "quick" && !quickOrderMinimum(subtotal).eligible) {
+      toast.error(`Minimum order is ₹${QUICK_MIN_ORDER} for Quick Delivery.`);
+      return;
+    }
     const currentFee = sched ? (sched.fee ?? 0) : quickDeliveryFee(deliveryFee(current, method), subtotal, freshVip, fresh?.freeUsedToday ?? 0);
     if (currentFee !== fee) {
       void settings.refetch();
@@ -168,28 +202,52 @@ function Checkout() {
       return;
     }
     setBusy(true);
-    let data: { id: string };
+    const effectiveMethod: "UPI" | "COD" = paidFullyByCoins ? "UPI" : method;
+    let data: { id: string; coinsUsed?: number; coinsPersistedRemotely?: boolean };
     try {
       data = await submitOrder({ data: {
         cart_items: items,
         subtotal,
-        payment_method: method,
-        utr_number: method === "UPI" ? utr : null,
+        payment_method: effectiveMethod,
+        utr_number: paidFullyByCoins ? makeCoinReceiptUtr() : method === "UPI" ? utr : null,
         delivery_fee: currentFee,
         total: subtotal + currentFee,
         delivery_address: `${hostel}, Room ${room}`,
         phone_number: phone || null,
         delivery_otp: makeOtp(),
-        status: method === "UPI" ? "payment_review" : "pending",
+        status: effectiveMethod === "UPI" ? "payment_review" : "pending",
         delivery_type: orderMode,
         delivery_date: orderMode === "sunday_tuesday" ? sundayTuesdayDeliveryDate() : null,
+        coins_used: coinsUsed,
       } });
+
+      if (coinsUsed > 0 && data.id) {
+        const usage = {
+          orderId: data.id,
+          userId: session.user.id,
+          coinsUsed,
+          orderTotal: subtotal + currentFee,
+          payableAmount: Math.max(0, subtotal + currentFee - coinsUsed),
+          paymentMethod: paidFullyByCoins ? ("COINS" as const) : effectiveMethod,
+          refunded: false,
+          createdAt: new Date().toISOString(),
+        };
+        if (!data.coinsPersistedRemotely) {
+          await supabase.from("suggestions").insert({
+            user_id: session.user.id,
+            user_name: profile?.full_name?.trim() || "Student",
+            suggestion_text: JSON.stringify({ type: "coin_order_spend", usage }),
+          });
+        }
+      }
     } catch (error) {
       void queryClient.invalidateQueries({ queryKey: ["products"] });
       toast.error(error instanceof Error ? error.message : "Could not place order");
       return;
     } finally { setBusy(false); }
     void queryClient.invalidateQueries({ queryKey: ["products"] });
+    void queryClient.invalidateQueries({ queryKey: ["app_settings"] });
+    void wallet.refetch();
     clear();
     toast.success("Order placed!");
     void navigate({ to: "/orders/$id", params: { id: data.id } });
@@ -209,7 +267,7 @@ function Checkout() {
     }
     const a = document.createElement("a");
     a.href = dataUrl;
-    a.download = `Campu-Order-${total}.png`;
+    a.download = `Campu-Order-${payableTotal}.png`;
     a.click();
     return true;
   }
@@ -346,7 +404,87 @@ function Checkout() {
           </div>
 
           <div className="min-w-0">
+        {/* Campu Coins Wallet Selector */}
+        <div className="royal-card mt-4 rounded-2xl border border-primary/35 bg-card p-4 shadow-card">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-2.5">
+              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-accent text-primary">
+                <Coins className="h-4 w-4" />
+              </span>
+              <div className="min-w-0">
+                <p className="text-sm font-bold text-foreground">Campu Coins Wallet</p>
+                <p className="text-xs text-muted-foreground tabular-nums">
+                  Available: <strong className="text-primary">{wallet.balance} Coins</strong> ({rupees(wallet.balanceInr)})
+                </p>
+              </div>
+            </div>
+            {wallet.balance > 0 ? (
+              <Switch
+                checked={useCoins}
+                onCheckedChange={(checked) => {
+                  setUseCoins(checked);
+                  if (checked) setCoinAmountInput(String(maxUsableCoins));
+                }}
+                aria-label="Use Campu Coins for this order"
+              />
+            ) : (
+              <Link
+                to="/coins"
+                className="shrink-0 rounded-full bg-brand px-3 py-1.5 text-xs font-bold text-primary-foreground shadow-xs"
+              >
+                Buy Coins
+              </Link>
+            )}
+          </div>
+
+          {useCoins && wallet.balance > 0 && (
+            <div className="mt-3 space-y-2 border-t border-border/70 pt-3">
+              <div className="flex items-center gap-2">
+                <Input
+                  inputMode="numeric"
+                  value={coinAmountInput}
+                  onChange={(e) => {
+                    const digits = e.target.value.replace(/\D/g, "");
+                    if (digits === "") {
+                      setCoinAmountInput("");
+                      return;
+                    }
+                    const clamped = Math.min(maxUsableCoins, Math.max(0, Number(digits)));
+                    setCoinAmountInput(String(clamped));
+                  }}
+                  placeholder={`Up to ${maxUsableCoins}`}
+                  className="h-10 flex-1 rounded-xl font-semibold tabular-nums"
+                />
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setCoinAmountInput(String(maxUsableCoins))}
+                  className="h-10 rounded-xl px-3 text-xs font-bold"
+                >
+                  Use Max ({maxUsableCoins})
+                </Button>
+              </div>
+              <p className="text-xs font-semibold text-primary tabular-nums">
+                Applying {coinsUsed} Coins = -{rupees(coinsUsed)} discount · Net payable: {rupees(payableTotal)}
+              </p>
+            </div>
+          )}
+        </div>
+
         <h2 className="mt-6 font-display text-lg font-bold">Payment method</h2>
+
+        {paidFullyByCoins ? (
+          <div className="royal-card mt-3 rounded-2xl border border-primary/40 bg-accent p-4 shadow-card">
+            <p className="flex items-center gap-2 font-display text-base font-bold text-primary">
+              <Coins className="h-5 w-5" /> 100% Covered by Campu Coins
+            </p>
+            <p className="mt-1 text-xs leading-relaxed text-muted-foreground tabular-nums">
+              {coinsUsed} Coins ({rupees(coinsUsed)}) cover your entire order total. Remaining UPI/Cash amount: <strong>₹0</strong>.
+            </p>
+          </div>
+        ) : (
+        <>
         <div className="mt-3 space-y-3">
           <MethodCard
             active={method === "UPI"}
@@ -380,7 +518,7 @@ function Checkout() {
               </div>
             </div>
             <p className="mt-2 text-center text-xs font-bold text-primary">
-              ✨ Yeh QR code har naye order ke liye naya generate hota hai (Amount Pre-filled)
+              ✨ Yeh QR code har naye order ke liye naya generate hota hai ({rupees(payableTotal)} Pre-filled)
             </p>
             <button
               type="button"
@@ -415,10 +553,10 @@ function Checkout() {
                     <text x="12" y="16.5" textAnchor="middle" fontSize="10" fontWeight="700" fill="#ffffff" fontFamily="system-ui, sans-serif">पे</text>
                   </svg>
                 </span>
-                <span>Pay {rupees(total)} via PhonePe</span>
+                <span>Pay {rupees(payableTotal)} via PhonePe</span>
               </button>
               <div className="mt-3 mb-4 space-y-2 rounded-2xl border border-warning/40 bg-warning/15 p-4 text-base font-bold leading-snug">
-                <p>STEP 1: Tap the button above to Download the QR Code (Your total amount of ₹{total} is pre-filled inside it).</p>
+                <p>STEP 1: Tap the button above to Download the QR Code (Your payable amount of ₹{payableTotal} is pre-filled inside it).</p>
                 <p>STEP 2: Open PhonePe → Tap 'Scan QR' → Choose the downloaded QR from your Gallery and complete the payment.</p>
                 <p>STEP 3: Copy the 12-digit UTR number from PhonePe, paste it into the box below, and tap 'Place Order'.</p>
               </div>
@@ -459,6 +597,8 @@ function Checkout() {
             <span>Cash on delivery includes an extra ₹3 handling charge. Keep exact change ready.</span>
           </div>
         )}
+        </>
+        )}
 
         <div className="royal-card mt-6 rounded-2xl border border-border bg-card p-4 shadow-card">
           <Row label={`Items (${items.length})`} value={rupees(subtotal)} />
@@ -473,21 +613,29 @@ function Checkout() {
           ) : (
             fee < normalQuickFee ? (
               <div className="flex justify-between py-1 text-sm">
-                <span className="text-muted-foreground">Delivery fee ({method}) · VIP 👑</span>
+                <span className="text-muted-foreground">Delivery fee ({paidFullyByCoins ? "Coins" : method}) · VIP 👑</span>
                 <span className="font-semibold"><s className="mr-1.5 font-normal text-muted-foreground">{rupees(normalQuickFee)}</s>FREE</span>
               </div>
             ) : (
-              <Row label={`Delivery fee (${method})`} value={rupees(fee)} />
+              <Row label={`Delivery fee (${paidFullyByCoins ? "UPI rate" : method})`} value={rupees(fee)} />
             )
+          )}
+          {coinsUsed > 0 && (
+            <Row label={`Campu Coins (${coinsUsed} used)`} value={`-${rupees(coinsUsed)}`} />
           )}
           {scheduled && !scheduled.eligible && (
             <p className="mt-1 text-xs font-semibold text-destructive">
               Minimum order is ₹{SCHEDULED_MIN_ORDER} for Sunday & Tuesday Special. Add ₹{scheduled.shortBy} more to place your order.
             </p>
           )}
+          {quickMin && !quickMin.eligible && (
+            <p className="mt-1 text-xs font-semibold text-destructive">
+              Minimum order is ₹{QUICK_MIN_ORDER} for Quick Delivery. Add ₹{quickMin.shortBy} more to place your order.
+            </p>
+          )}
           <VipCartHint vip={vip} mode={deliveryMode} subtotal={subtotal} />
           <div className="my-2 h-px bg-border" />
-          <Row label="Total payable" value={rupees(total)} bold />
+          <Row label="Net payable" value={rupees(payableTotal)} bold />
         </div>
 
         <Button
@@ -495,9 +643,15 @@ function Checkout() {
           onClick={placeOrder}
           className="mt-4 h-13 w-full rounded-full bg-brand py-3.5 text-base font-semibold text-primary-foreground shadow-float hover:opacity-95 disabled:opacity-40"
         >
-          {busy ? "Placing order…" : `Place order · ${rupees(total)}`}
+          {busy
+            ? "Placing order…"
+            : paidFullyByCoins
+              ? `Place order · ${coinsUsed} Coins (₹0)`
+              : coinsUsed > 0
+                ? `Place order · ${rupees(payableTotal)} + ${coinsUsed} Coins`
+                : `Place order · ${rupees(total)}`}
         </Button>
-        {method === "UPI" && !utrValid && (
+        {!paidFullyByCoins && method === "UPI" && !utrValid && (
           <p className="mt-2 text-center text-xs text-muted-foreground">
             Enter a valid 12-digit UTR to enable checkout.
           </p>

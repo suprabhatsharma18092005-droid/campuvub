@@ -13,13 +13,14 @@ import {
   Trash2,
   User,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { CampuLogo } from "@/components/CampuLogo";
 import { CartBar } from "@/components/CartBar";
 import { CatalogImage } from "@/components/CatalogImage";
 import { PushBanner } from "@/components/PushBanner";
+import { AdminCoinNotifier, StudentCoinStatusNotifier } from "@/components/admin/AdminCoinNotifier";
 import {
   Sheet,
   SheetContent,
@@ -34,7 +35,8 @@ import { toggleFavorite, useFavoriteIds } from "@/lib/favorites";
 import { rupees } from "@/lib/format";
 import { useLiveSync, usePushRegistration } from "@/lib/live-sync";
 import { listenForForegroundPush } from "@/lib/push";
-import { productsQuery } from "@/lib/queries";
+import { productsQuery, settingsQuery } from "@/lib/queries";
+import { useSession } from "@/lib/session";
 import { cn } from "@/lib/utils";
 import { RoyalThemeContext, useRoyalThemeState } from "@/lib/vip";
 
@@ -54,11 +56,23 @@ export function AppShell({
   useLiveSync();
   usePushRegistration();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const { session } = useSession();
   const royal = useRoyalThemeState();
   const mode = useDeliveryMode();
   const favoriteIds = useFavoriteIds();
   const products = useQuery(productsQuery);
-  const savedProducts = (products.data ?? []).filter((p) => favoriteIds.includes(p.id));
+  const settings = useQuery(settingsQuery);
+  const rawWhatsappLink = settings.data?.["whatsapp_link"]?.trim() ?? "";
+  const whatsappUrl = rawWhatsappLink
+    ? /^https?:\/\//i.test(rawWhatsappLink)
+      ? rawWhatsappLink
+      : `https://${rawWhatsappLink}`
+    : null;
+  const savedProducts = useMemo(() => {
+    if (favoriteIds.length === 0 || !products.data?.length) return [];
+    const idSet = new Set(favoriteIds);
+    return products.data.filter((p) => idSet.has(p.id));
+  }, [products.data, favoriteIds]);
   const shouldHideBottomNav = hideBottomNav || pathname.startsWith("/product/");
 
   useEffect(() => {
@@ -134,11 +148,13 @@ export function AppShell({
 
   return (
     <RoyalThemeContext.Provider value={royal}>
+      {royal.isAdmin && <AdminCoinNotifier />}
+      {session?.user.id && <StudentCoinStatusNotifier userId={session.user.id} />}
       <div
         data-royal={royal.isRoyal ? "true" : undefined}
         className="flex min-h-screen w-full flex-col bg-background"
       >
-        <header className="sticky top-0 z-30 border-b border-border/60 bg-background/75 text-foreground backdrop-blur-xl transition-colors">
+        <header className="sticky top-0 z-30 border-b border-border/60 bg-background/95 text-foreground transition-colors">
           <div className="flex h-12 items-center gap-2 px-4">
             <Link to="/" className="flex items-center gap-2">
               <CampuLogo className="h-7 w-7 rounded-xl" />
@@ -154,6 +170,31 @@ export function AppShell({
             </Link>
 
             <div className="ml-auto flex items-center gap-2">
+              {whatsappUrl ? (
+                <a
+                  href={whatsappUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label="Join WhatsApp channel or group"
+                  title="Join WhatsApp"
+                  className="grid h-9 w-9 place-items-center rounded-full bg-[#25D366]/15 text-[#128C7E] transition-colors hover:bg-[#25D366]/25 active:scale-95 dark:text-[#25D366]"
+                >
+                  <WhatsAppIcon className="h-[19px] w-[19px]" />
+                </a>
+              ) : (
+                <button
+                  type="button"
+                  aria-label="Join WhatsApp channel or group"
+                  title="WhatsApp"
+                  onClick={() =>
+                    toast.info("WhatsApp channel / group link has not been added by Admin yet.")
+                  }
+                  className="grid h-9 w-9 place-items-center rounded-full bg-[#25D366]/15 text-[#128C7E] transition-colors hover:bg-[#25D366]/25 active:scale-95 dark:text-[#25D366]"
+                >
+                  <WhatsAppIcon className="h-[19px] w-[19px]" />
+                </button>
+              )}
+
               <button
                 type="button"
                 aria-label="Saved favorites"
@@ -199,7 +240,7 @@ export function AppShell({
         {!shouldHideBottomNav && (
           <nav
             aria-label="Primary navigation"
-            className="fixed bottom-2.5 left-1/2 z-30 w-[calc(100%-1rem)] max-w-2xl -translate-x-1/2 overflow-hidden rounded-[26px] border border-border/60 bg-background/75 px-1.5 py-1.5 pb-safe shadow-float backdrop-blur-xl transition-colors"
+            className="fixed bottom-2.5 left-1/2 z-30 w-[calc(100%-1rem)] max-w-2xl -translate-x-1/2 overflow-hidden rounded-[26px] border border-border/60 bg-background/95 px-1.5 py-1.5 pb-safe shadow-float transition-colors"
           >
             <div className="grid grid-cols-6 gap-0.5">
               <Link
@@ -438,6 +479,14 @@ function SpecialDeliveryIcon({ className }: { className?: string }) {
       <rect x="3" y="5" width="18" height="16" rx="4" fill="currentColor" fillOpacity={0.1} />
       <path d="M8 3v3M16 3v3M3 9.5h18" />
       <path d="m12 12 1.05 2.15 2.35.34-1.7 1.66.4 2.35-2.1-1.1-2.1 1.1.4-2.35-1.7-1.66 2.35-.34L12 12Z" fill="currentColor" />
+    </svg>
+  );
+}
+
+function WhatsAppIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden="true">
+      <path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.75.46 3.45 1.32 4.95L2.05 22l5.25-1.38c1.45.79 3.08 1.21 4.74 1.21 5.46 0 9.91-4.45 9.91-9.91S17.5 2 12.04 2Zm5.78 14.07c-.24.67-1.38 1.29-1.91 1.36-.49.07-1.12.1-1.8-.11-.42-.13-.95-.31-1.64-.61-2.89-1.25-4.78-4.18-4.92-4.37-.14-.19-1.18-1.57-1.18-3 0-1.43.75-2.13 1.02-2.42.27-.29.58-.36.77-.36.19 0 .39 0 .56.01.18.01.42-.07.66.5.24.58.82 2 .89 2.15.07.14.12.31.02.5-.1.19-.14.31-.29.48-.14.17-.31.38-.44.51-.14.14-.29.3-.12.59.17.29.75 1.24 1.61 2.01 1.11.99 2.04 1.3 2.33 1.44.29.14.46.12.63-.07.17-.19.72-.84.91-1.13.19-.29.39-.24.65-.14.27.1 1.69.8 1.98.94.29.14.48.22.55.34.07.12.07.7-.17 1.37Z" />
     </svg>
   );
 }

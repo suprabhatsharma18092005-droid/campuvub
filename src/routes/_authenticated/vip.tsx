@@ -14,7 +14,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { rupees } from "@/lib/format";
 import { notifyVipRequest } from "@/lib/push.functions";
 import { settingsQuery } from "@/lib/queries";
-import { VIP_PRICE, VIP_QUICK_FREE_PER_DAY } from "@/lib/scheduled-fee";
+import { VIP_PRICE, VIP_QUICK_FREE_PER_DAY, VIP_QUICK_MIN_ORDER } from "@/lib/scheduled-fee";
 import { useProfile, useSession } from "@/lib/session";
 import { cn } from "@/lib/utils";
 import { useVip } from "@/lib/vip";
@@ -28,13 +28,13 @@ export const Route = createFileRoute("/_authenticated/vip")({
       {
         name: "description",
         content:
-          "Join Campu VIP for ₹149/month: free quick delivery with no minimum order and Sunday/Tuesday delivery from ₹3.",
+          "Join Campu VIP for ₹149/month: 1 free quick delivery per day on ₹50+ orders and Sunday/Tuesday delivery from ₹3.",
       },
       { property: "og:title", content: "Campu VIP — Free Delivery Membership" },
       {
         property: "og:description",
         content:
-          "Free quick delivery with no minimum order and Sunday/Tuesday delivery from ₹3 for ₹149/month.",
+          "1 free quick delivery daily on ₹50+ orders and Sunday/Tuesday delivery from ₹3 for ₹149/month.",
       },
     ],
   }),
@@ -179,7 +179,7 @@ function VipPage() {
                   Min Order Value
                 </p>
                 <p className="mt-0.5 font-display text-lg font-extrabold text-white">
-                  No Minimum
+                  {rupees(VIP_QUICK_MIN_ORDER)}
                 </p>
               </div>
             </div>
@@ -193,7 +193,7 @@ function VipPage() {
             <p className="mt-2 text-sm">
               {vip.wasMember
                 ? `Your Campu VIP has expired! Renew now for ${rupees(price)} to continue free deliveries.`
-                : `${rupees(price)} for 30 days · 2 FREE quick deliveries every day`}
+                : `${rupees(price)} for 30 days · ${VIP_QUICK_FREE_PER_DAY} FREE quick ${VIP_QUICK_FREE_PER_DAY === 1 ? "delivery" : "deliveries"} every day (Min ₹${VIP_QUICK_MIN_ORDER})`}
             </p>
           </div>
         )}
@@ -203,7 +203,7 @@ function VipPage() {
             {vip.isVip ? "Your Active VIP Benefits" : "Benefits"}
           </h2>
           <div className="mt-2 overflow-hidden rounded-xl border border-border text-sm">
-            <BenefitRow label="Quick delivery (No min order, 2/day)" normal="₹5" vip="FREE" />
+            <BenefitRow label={`Quick delivery (Min ₹${VIP_QUICK_MIN_ORDER}, ${VIP_QUICK_FREE_PER_DAY}/day)`} normal="₹5" vip="FREE" />
             <BenefitRow label="Sunday/Tuesday ₹99–₹299" normal="₹15" vip="₹3" />
             <BenefitRow label="Sunday/Tuesday ₹300+" normal="₹10" vip="FREE" />
           </div>

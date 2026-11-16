@@ -50,6 +50,7 @@ export function AdminSettings() {
       order_start_time: data["order_start_time"] ?? "",
       sunday_tuesday_delivery_time: data["sunday_tuesday_delivery_time"] ?? "10:00",
       quick_delivery_estimate: data["quick_delivery_estimate"] ?? "15–20 min",
+      whatsapp_link: data["whatsapp_link"] ?? "",
       [THEME_SETTING_KEY]: data[THEME_SETTING_KEY] ?? DEFAULT_THEME_ID,
     });
   }, [data]);
@@ -78,6 +79,11 @@ export function AdminSettings() {
     }
     if (!values["upi_id"]?.trim()) {
       toast.error("UPI ID is required.");
+      return;
+    }
+    const rawWa = values["whatsapp_link"]?.trim() ?? "";
+    if (rawWa && !/^https?:\/\/\S+$/i.test(rawWa)) {
+      toast.error("Enter a valid WhatsApp URL starting with https://");
       return;
     }
     setBusy(true);
@@ -216,6 +222,21 @@ export function AdminSettings() {
           <label htmlFor="quick-est" className="mb-1 block text-sm font-medium">Quick delivery estimate</label>
           <Input id="quick-est" value={values["quick_delivery_estimate"] ?? ""} placeholder="15–20 min"
             onChange={(e) => setValues({ ...values, quick_delivery_estimate: e.target.value })} />
+        </div>
+        <div>
+          <label htmlFor="whatsapp-link" className="mb-1 block text-sm font-medium">
+            WhatsApp Channel / Group Link
+          </label>
+          <Input
+            id="whatsapp-link"
+            type="url"
+            value={values["whatsapp_link"] ?? ""}
+            placeholder="https://whatsapp.com/channel/... or https://chat.whatsapp.com/..."
+            onChange={(e) => setValues({ ...values, whatsapp_link: e.target.value })}
+          />
+          <p className="mt-1 text-xs text-muted-foreground">
+            Opens when users tap the WhatsApp icon beside the Favorites heart in the top bar.
+          </p>
         </div>
       </section>
       <section className="space-y-3 border-t border-border pt-5">

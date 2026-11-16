@@ -6,6 +6,7 @@ import { useEffect } from "react";
 
 import { AppShell } from "@/components/AppShell";
 import { supabase } from "@/integrations/supabase/client";
+import { useCoinWallet } from "@/lib/coins";
 import { rupees, STATUS_LABELS } from "@/lib/format";
 import { useSession } from "@/lib/session";
 import { cn } from "@/lib/utils";
@@ -33,6 +34,7 @@ export function statusTone(status: string) {
 
 function Orders() {
   const { session } = useSession();
+  const wallet = useCoinWallet();
   const queryClient = useQueryClient();
 
   const { data, isLoading } = useQuery({
@@ -79,6 +81,7 @@ function Orders() {
           <ul className="mt-4 space-y-3">
             {(data ?? []).map((o) => {
               const items = (o.cart_items as { name: string; qty: number }[]) ?? [];
+              const coinUsage = wallet.coinUsageForOrder(o.id);
               return (
                 <li key={o.id}>
                   <Link
@@ -93,7 +96,7 @@ function Orders() {
                         </p>
                         <p className="mt-1 text-xs text-muted-foreground">
                           #{o.id.slice(0, 8)} · {new Date(o.created_at).toLocaleString()} ·{" "}
-                          {o.payment_method}
+                          {coinUsage?.payableAmount === 0 ? "Campu Coins" : o.payment_method}
                         </p>
                         {o.delivery_type === "sunday_tuesday" && o.delivery_date && (
                           <p className="mt-1 text-xs font-semibold text-primary">
@@ -101,7 +104,16 @@ function Orders() {
                           </p>
                         )}
                       </div>
-                      <span className="font-display font-bold">{rupees(o.total)}</span>
+                      <div className="text-right">
+                        <span className="font-display font-bold tabular-nums">
+                          {rupees(coinUsage ? coinUsage.payableAmount : o.total)}
+                        </span>
+                        {coinUsage && coinUsage.coinsUsed > 0 && (
+                          <span className="block text-[11px] font-semibold text-primary tabular-nums">
+                            +{coinUsage.coinsUsed} Coins used
+                          </span>
+                        )}
+                      </div>
                     </div>
                     <span
                       className={cn(

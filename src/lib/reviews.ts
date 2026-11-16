@@ -101,12 +101,18 @@ export function useLocalReviews(): ProductReview[] {
   return useSyncExternalStore(subscribe, getLocalReviews, () => EMPTY);
 }
 
+let lastGlobalRaw: string | undefined;
+let lastGlobalMap: Record<string, ProductReviewAggregate> = {};
+
 export function parseGlobalReviewsSummary(raw?: string): Record<string, ProductReviewAggregate> {
   if (!raw) return {};
+  if (raw === lastGlobalRaw) return lastGlobalMap;
   try {
     const parsed = JSON.parse(raw);
     if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-      return parsed as Record<string, ProductReviewAggregate>;
+      lastGlobalRaw = raw;
+      lastGlobalMap = parsed as Record<string, ProductReviewAggregate>;
+      return lastGlobalMap;
     }
   } catch {
     /* ignore malformed JSON */

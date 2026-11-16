@@ -14,7 +14,7 @@ export function PushBanner({
     <button
       type="button"
       onClick={onClick}
-      className="animate-push-banner pointer-events-auto flex w-[min(92vw,26rem)] items-center gap-3 rounded-2xl border border-white/40 bg-white/30 p-4 text-left text-gray-900 shadow-2xl backdrop-blur-xl"
+      className="animate-push-banner pointer-events-auto flex w-[min(92vw,26rem)] items-center gap-3 rounded-2xl border border-border/80 bg-white/95 p-4 text-left text-gray-900 shadow-lg"
     >
       <CampuLogo className="h-10 w-10 rounded-xl" />
       <span className="min-w-0 flex-1">

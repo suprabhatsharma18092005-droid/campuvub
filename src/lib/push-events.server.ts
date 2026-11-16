@@ -19,6 +19,20 @@ export const pushEventSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('order_status'), orderId: z.string().uuid() }),
   z.object({ type: z.literal('broadcast'), broadcastId: z.string().uuid() }),
   z.object({ type: z.literal('vip_request'), vipId: z.string().uuid() }),
+  z.object({
+    type: z.literal('coin_request'),
+    requestId: z.string().min(1),
+    coins: z.number().int().min(50),
+    amount: z.number().int().min(50),
+    utrNumber: z.string().regex(/^[0-9]{12}$/),
+    customerName: z.string().max(80),
+  }),
+  z.object({
+    type: z.literal('coin_status'),
+    userId: z.string().uuid(),
+    coins: z.number().int().min(50),
+    status: z.enum(['approved', 'rejected']),
+  }),
   z.object({ type: z.literal('test') }),
 ]);
 export type PushEvent = z.infer<typeof pushEventSchema>;
@@ -96,6 +110,23 @@ export async function runPushEvent(event: PushEvent, ctx: EventContext): Promise
         amount: Number(sub.amount),
       });
     }
+    case 'coin_request': {
+      return delivery.sendCoinRequestAlert({
+        requestId: event.requestId,
+        customerName: event.customerName,
+        utrNumber: event.utrNumber,
+        coins: event.coins,
+        amount: event.amount,
+      });
+    }
+    case 'coin_status': {
+      if (!(await isAdmin(ctx))) throw new PushForbiddenError('Forbidden');
+      return delivery.sendCoinStatusAlert({
+        userId: event.userId,
+        coins: event.coins,
+        status: event.status,
+      });
+    }
     case 'test': {
       if (!(await isAdmin(ctx))) throw new PushForbiddenError('Forbidden');
       const tokens = await delivery.deviceTokens([ctx.userId]);
@@ -123,7 +154,11 @@ export async function forwardPushEvent(event: PushEvent, auth: string | null | u
     body: JSON.stringify(event),
   });
   if (!res.ok) {
-    console.error(`Push event hand-off failed [${res.status}]: ${(await res.text()).slice(0, 200)}`);
+    const errBody = (await res.text()).slice(0, 200);
+    if (res.status === 400 && (event.type === 'coin_request' || event.type === 'coin_status')) {
+      return { sent: 0 };
+    }
+    console.error(`Push event hand-off failed [${res.status}]: ${errBody}`);
     return { sent: 0, error: `Notification host responded ${res.status}` };
   }
   const body = (await res.json()) as Partial<PushEventResult>;
@@ -137,6 +172,10 @@ export async function dispatchPushEvent(event: PushEvent, ctx: EventContext): Pr
       return { sent: 0 };
     }
     if (canSendLocally()) return await runPushEvent(event, ctx);
+    // Remote default host doesn't recognize custom coin_* push variants yet; rely on realtime sync unless a custom push host is set.
+    if ((event.type === 'coin_request' || event.type === 'coin_status') && !process.env['PUSH_EVENT_HOST_URL']) {
+      return { sent: 0 };
+    }
     return await forwardPushEvent(event, getRequest()?.headers.get('authorization'), {
       base: process.env['PUSH_EVENT_HOST_URL'],
     });

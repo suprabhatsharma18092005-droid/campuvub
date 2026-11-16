@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { Search } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { AppShell } from "@/components/AppShell";
 import { CategoryBrowser } from "@/components/CategoryBrowser";
@@ -17,6 +17,26 @@ import { CATEGORY_MODES_KEY, isCategoryInMode, parseCategoryModes } from "@/lib/
 import { productInMode, useDeliveryMode } from "@/lib/delivery";
 import { brandsQuery, categoriesQuery, productsQuery, subcategoriesQuery } from "@/lib/queries";
 import { useVip } from "@/lib/vip";
+
+const PAGE_SIZE = 24;
+const shuffledCache = new WeakMap<Product[], Product[]>();
+
+function shuffleProducts(items: Product[]): Product[] {
+  const cached = shuffledCache.get(items);
+  if (cached) return cached;
+  const shuffled = [...items];
+  for (let i = shuffled.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const current = shuffled[i];
+    const target = shuffled[j];
+    if (current && target) {
+      shuffled[i] = target;
+      shuffled[j] = current;
+    }
+  }
+  shuffledCache.set(items, shuffled);
+  return shuffled;
+}
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -50,6 +70,8 @@ export const Route = createFileRoute("/")({
 
 function Home() {
   const [q, setQ] = useState("");
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const loadMoreRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
   const products = useQuery(productsQuery);
   const categories = useQuery(categoriesQuery);
@@ -60,19 +82,16 @@ function Home() {
     [settings.data],
   );
 
-  const [randomizedProducts, setRandomizedProducts] = useState<Product[]>([]);
+  // Preserve SSR/hydration match on initial frame, then cache per-session shuffle
+  // so navigating back to Home never triggers a redundant full-grid re-shuffle.
+  const [randomizedProducts, setRandomizedProducts] = useState<Product[]>(() =>
+    products.data ? (shuffledCache.get(products.data) ?? []) : [],
+  );
+
   useEffect(() => {
-    const shuffled = [...(products.data ?? [])];
-    for (let i = shuffled.length - 1; i > 0; i -= 1) {
-      const j = Math.floor(Math.random() * (i + 1));
-      const current = shuffled[i];
-      const target = shuffled[j];
-      if (current && target) {
-        shuffled[i] = target;
-        shuffled[j] = current;
-      }
-    }
-    setRandomizedProducts(shuffled);
+    if (!products.data) return;
+    const next = shuffleProducts(products.data);
+    setRandomizedProducts((prev) => (prev === next ? prev : next));
   }, [products.data]);
 
   const visibleProducts = useMemo(
@@ -89,10 +108,37 @@ function Home() {
       if (p.category_id && !isCategoryInMode(p.category_id, mode, categoryModes)) return false;
       return true;
     });
-    if (!q.trim()) return inMode;
-    const term = q.toLowerCase();
+    const trimmed = q.trim();
+    if (!trimmed) return inMode;
+    const term = trimmed.toLowerCase();
     return inMode.filter((p) => p.name.toLowerCase().includes(term));
   }, [visibleProducts, q, mode, categoryModes]);
+
+  useEffect(() => {
+    setVisibleCount(PAGE_SIZE);
+  }, [mode, q]);
+
+  const renderedList = useMemo(
+    () => (q.trim() ? list : list.slice(0, visibleCount)),
+    [list, q, visibleCount],
+  );
+  const hasMore = !q.trim() && renderedList.length < list.length;
+
+  useEffect(() => {
+    if (!hasMore) return;
+    const node = loadMoreRef.current;
+    if (!node || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          setVisibleCount((c) => Math.min(list.length, c + PAGE_SIZE));
+        }
+      },
+      { rootMargin: "400px 0px" },
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [hasMore, list.length]);
 
   function handleSelectCategory(next: CatalogSelection) {
     if (next.category) {
@@ -138,7 +184,7 @@ function Home() {
       </section>
 
       {(categories.data ?? []).length > 0 && (
-        <section className="sticky top-12 z-20 mt-4 border-b border-border/60 bg-background/80 px-4 py-2.5 backdrop-blur-xl">
+        <section className="sticky top-12 z-20 mt-4 border-b border-border/60 bg-background/95 px-4 py-2.5">
           <div className="mb-2 flex items-center justify-between">
             <h2 className="font-display text-sm font-bold sm:text-base">Shop by category</h2>
             <Link to="/categories" className="text-xs font-semibold text-primary">
@@ -166,11 +212,24 @@ function Home() {
             Nothing found. Try another search.
           </p>
         ) : (
-          <div className="grid grid-cols-2 gap-2.5 sm:gap-3 md:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5">
-            {list.map((p, i) => (
-              <ProductCard key={p.id} product={p} priority={i < 6} />
-            ))}
-          </div>
+          <>
+            <div className="grid grid-cols-2 gap-2.5 sm:gap-3 md:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5">
+              {renderedList.map((p, i) => (
+                <ProductCard key={p.id} product={p} priority={i < 4} />
+              ))}
+            </div>
+            {hasMore && (
+              <div ref={loadMoreRef} className="mt-5 flex justify-center">
+                <button
+                  type="button"
+                  onClick={() => setVisibleCount((c) => Math.min(list.length, c + PAGE_SIZE))}
+                  className="rounded-full border border-border bg-card px-5 py-2 text-xs font-bold text-primary shadow-xs hover:bg-accent"
+                >
+                  Load more ({list.length - renderedList.length} left)
+                </button>
+              </div>
+            )}
+          </>
         )}
       </section>
     </AppShell>

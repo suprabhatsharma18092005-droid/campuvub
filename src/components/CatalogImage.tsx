@@ -25,14 +25,20 @@ export function CatalogImage({
   const url = catalogPublicUrl(source);
 
   useEffect(() => {
-    setReady(false);
     setFailed(false);
     const img = ref.current;
-    if (img?.complete && img.naturalWidth > 0) reveal(img);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (img?.complete && img.naturalWidth > 0) {
+      setReady(true);
+      return;
+    }
+    setReady(false);
   }, [url]);
 
   function reveal(img: HTMLImageElement) {
+    if (img.complete && img.naturalWidth > 0) {
+      setReady(true);
+      return;
+    }
     const done = () => setReady(true);
     if (typeof img.decode === "function") img.decode().then(done, done);
     else done();
@@ -57,7 +63,7 @@ export function CatalogImage({
         {...(priority ? { fetchPriority: "high" as const } : {})}
         onLoad={(e) => reveal(e.currentTarget)}
         onError={() => setFailed(true)}
-        className={cn("h-full w-full object-cover transition-opacity duration-300", ready ? "opacity-100" : "opacity-0")}
+        className={cn("h-full w-full object-cover transition-opacity duration-150", ready ? "opacity-100" : "opacity-0")}
       />
     </span>
   );
