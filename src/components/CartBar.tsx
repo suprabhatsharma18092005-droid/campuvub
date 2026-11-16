@@ -17,7 +17,7 @@ export function CartBar() {
   if (count === 0 || HIDDEN_ON.some((p) => pathname.startsWith(p))) return null;
 
   return (
-    <div className="pointer-events-none fixed bottom-[5.4rem] left-1/2 z-40 flex -translate-x-1/2 justify-center px-3">
+    <div className="pointer-events-none fixed bottom-[5.4rem] left-1/2 z-40 flex -translate-x-1/2 justify-center px-3 md:bottom-[5.8rem]">
       <div>
         <Link
           key={bump}

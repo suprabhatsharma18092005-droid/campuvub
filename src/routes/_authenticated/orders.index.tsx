@@ -78,7 +78,7 @@ function Orders() {
         ) : (data ?? []).length === 0 ? (
           <p className="py-16 text-center text-sm text-muted-foreground">No orders yet.</p>
         ) : (
-          <ul className="mt-4 space-y-3">
+          <ul className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             {(data ?? []).map((o) => {
               const items = (o.cart_items as { name: string; qty: number }[]) ?? [];
               const coinUsage = wallet.coinUsageForOrder(o.id);
@@ -87,7 +87,7 @@ function Orders() {
                   <Link
                     to="/orders/$id"
                     params={{ id: o.id }}
-                    className="block rounded-2xl border border-border bg-card p-4 shadow-card"
+                    className="flex h-full flex-col justify-between rounded-3xl border border-border bg-card p-4 shadow-card transition-colors hover:border-primary/40"
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
@@ -115,19 +115,21 @@ function Orders() {
                         )}
                       </div>
                     </div>
-                    <span
-                      className={cn(
-                        "mt-3 inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-bold",
-                        statusTone(o.status),
-                      )}
-                    >
-                      {o.status === "delivered" && (
-                        <span className="grid h-4 w-4 place-items-center rounded-full bg-success text-success-foreground">
-                          <Check className="h-3 w-3" strokeWidth={3} />
-                        </span>
-                      )}
-                      {STATUS_LABELS[o.status]}
-                    </span>
+                    <div>
+                      <span
+                        className={cn(
+                          "mt-3 inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-bold",
+                          statusTone(o.status),
+                        )}
+                      >
+                        {o.status === "delivered" && (
+                          <span className="grid h-4 w-4 place-items-center rounded-full bg-success text-success-foreground">
+                            <Check className="h-3 w-3" strokeWidth={3} />
+                          </span>
+                        )}
+                        {STATUS_LABELS[o.status]}
+                      </span>
+                    </div>
                   </Link>
                 </li>
               );

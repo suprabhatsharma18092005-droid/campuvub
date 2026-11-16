@@ -152,13 +152,13 @@ export function AppShell({
       {session?.user.id && <StudentCoinStatusNotifier userId={session.user.id} />}
       <div
         data-royal={royal.isRoyal ? "true" : undefined}
-        className="flex min-h-screen w-full flex-col bg-background"
+        className="flex min-h-screen w-full flex-col overflow-x-clip bg-background"
       >
-        <header className="sticky top-0 z-30 border-b border-border/60 bg-background/95 text-foreground transition-colors">
-          <div className="flex h-12 items-center gap-2 px-4">
+        <header className="sticky top-0 z-30 border-b border-border/60 bg-background/95 text-foreground transition-colors md:shadow-xs">
+          <div className="mx-auto flex h-12 w-full max-w-7xl items-center gap-2 px-4 md:h-14 md:px-6">
             <Link to="/" className="flex items-center gap-2">
-              <CampuLogo className="h-7 w-7 rounded-xl" />
-              <span className="font-display text-[18px] font-extrabold tracking-tight text-brand">
+              <CampuLogo className="h-7 w-7 rounded-xl md:h-8 md:w-8" />
+              <span className="font-display text-[18px] font-extrabold tracking-tight text-brand md:text-[20px]">
                 Campu
               </span>
               {royal.isRoyal && (
@@ -177,9 +177,10 @@ export function AppShell({
                   rel="noopener noreferrer"
                   aria-label="Join WhatsApp channel or group"
                   title="Join WhatsApp"
-                  className="grid h-9 w-9 place-items-center rounded-full bg-[#25D366]/15 text-[#128C7E] transition-colors hover:bg-[#25D366]/25 active:scale-95 dark:text-[#25D366]"
+                  className="inline-flex h-9 items-center justify-center gap-1.5 rounded-full bg-[#25D366]/15 px-2.5 text-xs font-bold text-[#128C7E] transition-colors hover:bg-[#25D366]/25 active:scale-95 dark:text-[#25D366] lg:px-3.5"
                 >
-                  <WhatsAppIcon className="h-[19px] w-[19px]" />
+                  <WhatsAppIcon className="h-[18px] w-[18px] shrink-0" />
+                  <span className="hidden lg:inline">WhatsApp</span>
                 </a>
               ) : (
                 <button
@@ -189,9 +190,10 @@ export function AppShell({
                   onClick={() =>
                     toast.info("WhatsApp channel / group link has not been added by Admin yet.")
                   }
-                  className="grid h-9 w-9 place-items-center rounded-full bg-[#25D366]/15 text-[#128C7E] transition-colors hover:bg-[#25D366]/25 active:scale-95 dark:text-[#25D366]"
+                  className="inline-flex h-9 items-center justify-center gap-1.5 rounded-full bg-[#25D366]/15 px-2.5 text-xs font-bold text-[#128C7E] transition-colors hover:bg-[#25D366]/25 active:scale-95 dark:text-[#25D366] lg:px-3.5"
                 >
-                  <WhatsAppIcon className="h-[19px] w-[19px]" />
+                  <WhatsAppIcon className="h-[18px] w-[18px] shrink-0" />
+                  <span className="hidden lg:inline">WhatsApp</span>
                 </button>
               )}
 
@@ -199,14 +201,15 @@ export function AppShell({
                 type="button"
                 aria-label="Saved favorites"
                 onClick={() => setFavoritesOpen(true)}
-                className="relative grid h-9 w-9 place-items-center rounded-full bg-accent/80 text-primary transition-colors hover:bg-accent active:scale-95"
+                className="relative inline-flex h-9 items-center justify-center gap-1.5 rounded-full bg-accent/80 px-2.5 text-xs font-bold text-primary transition-colors hover:bg-accent active:scale-95 lg:px-3.5"
               >
                 <Heart
                   className={cn(
-                    "h-[18px] w-[18px]",
+                    "h-[18px] w-[18px] shrink-0",
                     savedProducts.length > 0 && "fill-destructive text-destructive",
                   )}
                 />
+                <span className="hidden lg:inline">Saved</span>
                 {savedProducts.length > 0 && (
                   <span className="absolute -right-0.5 -top-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-destructive px-1 text-[10px] font-bold text-destructive-foreground shadow-xs">
                     {savedProducts.length}
@@ -218,11 +221,12 @@ export function AppShell({
                 to="/cart"
                 aria-label="Cart"
                 className={cn(
-                  "relative grid h-9 w-9 place-items-center rounded-full bg-accent/80 text-primary transition-colors hover:bg-accent",
+                  "relative inline-flex h-9 items-center justify-center gap-1.5 rounded-full bg-accent/80 px-2.5 text-xs font-bold text-primary transition-colors hover:bg-accent lg:px-3.5",
                   pop && "animate-cart-bounce",
                 )}
               >
-                <ShoppingBag className="h-[18px] w-[18px]" />
+                <ShoppingBag className="h-[18px] w-[18px] shrink-0" />
+                <span className="hidden lg:inline">Cart</span>
                 {count > 0 && (
                   <span className="absolute -right-0.5 -top-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-primary px-1 text-[10px] font-bold text-primary-foreground shadow-xs">
                     {count}
@@ -233,14 +237,14 @@ export function AppShell({
           </div>
         </header>
 
-        <main className={cn("flex-1", shouldHideBottomNav ? "pb-28" : "pb-40")}>{children}</main>
+        <main className={cn("mx-auto w-full max-w-7xl flex-1 md:px-2", shouldHideBottomNav ? "pb-28" : "pb-40 md:pb-32")}>{children}</main>
 
         <CartBar />
 
         {!shouldHideBottomNav && (
           <nav
             aria-label="Primary navigation"
-            className="fixed bottom-2.5 left-1/2 z-30 w-[calc(100%-1rem)] max-w-2xl -translate-x-1/2 overflow-hidden rounded-[26px] border border-border/60 bg-background/95 px-1.5 py-1.5 pb-safe shadow-float transition-colors"
+            className="fixed bottom-2.5 left-1/2 z-30 w-[calc(100%-1rem)] max-w-2xl -translate-x-1/2 overflow-hidden rounded-[26px] border border-border/70 bg-background/95 px-1.5 py-1.5 pb-safe shadow-float transition-colors md:bottom-4 md:max-w-3xl md:rounded-[28px] md:border-border/80 md:bg-card/95 md:px-3"
           >
             <div className="grid grid-cols-6 gap-0.5">
               <Link

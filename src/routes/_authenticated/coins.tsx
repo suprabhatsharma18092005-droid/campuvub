@@ -214,7 +214,8 @@ function CoinsPage() {
 
   return (
     <AppShell>
-      <div className="mx-auto w-full max-w-2xl px-4 pb-10 pt-5">
+      <div className="px-4 pb-10 pt-5 lg:grid lg:grid-cols-12 lg:items-start lg:gap-6">
+        <div className="min-w-0 space-y-4 lg:col-span-5">
         {/* Wallet Balance Hero */}
         <div className="relative overflow-hidden rounded-3xl border border-primary/40 bg-royal p-5 text-white shadow-float">
           <div className="flex items-start justify-between gap-4">
@@ -247,7 +248,7 @@ function CoinsPage() {
 
         {/* Pending Verification Banner */}
         {wallet.pendingRequest && (
-          <div className="mt-4 rounded-2xl border border-primary/40 bg-accent p-4 text-sm shadow-card">
+          <div className="rounded-3xl border border-primary/40 bg-accent p-4 text-sm shadow-card">
             <p className="font-display text-base font-bold text-primary">
               Payment Under Review · Verification Pending
             </p>
@@ -259,10 +260,12 @@ function CoinsPage() {
             </p>
           </div>
         )}
+        </div>
 
+        <div className="min-w-0 lg:col-span-7">
         {/* Buy Coins Section (Same Verified Flow as VIP Pass) */}
         {!wallet.pendingRequest && (
-          <div className="royal-card mt-4 rounded-3xl border border-border bg-card p-4 shadow-card sm:p-5">
+          <div className="royal-card mt-4 rounded-3xl border border-border bg-card p-4 shadow-card sm:p-5 lg:mt-0">
             <div className="flex items-center justify-between gap-2">
               <div>
                 <h1 className="font-display text-lg font-bold">Buy Campu Coins</h1>
@@ -549,6 +552,7 @@ function CoinsPage() {
             )}
           </div>
         )}
+        </div>
       </div>
     </AppShell>
   );

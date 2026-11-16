@@ -392,7 +392,7 @@ function Admin() {
         />
 
         <Tabs value={activeTab} onValueChange={onTabChange} className="mt-4">
-          <TabsList className="flex w-full justify-start gap-1 overflow-x-auto">
+          <TabsList className="flex h-auto w-full justify-start gap-1 overflow-x-auto rounded-2xl border border-border/70 bg-card p-1.5 shadow-card md:flex-wrap">
             <TabsTrigger value="dashboard">Stats</TabsTrigger>
             <TabsTrigger value="queue">
               Payments {queue.length > 0 && `(${queue.length})`}
@@ -429,6 +429,7 @@ function Admin() {
             {queue.length === 0 && (
               <Empty icon={Bell} text="No payments waiting for verification." />
             )}
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {queue.map((o) => {
               const coinUsage = coinUsages[o.id];
               const isFullCoins = coinUsage && coinUsage.payableAmount === 0;
@@ -480,6 +481,7 @@ function Admin() {
               </div>
               );
             })}
+            </div>
           </TabsContent>
 
       <TabsContent value="orders" className="mt-4 space-y-3">
@@ -516,6 +518,7 @@ function Admin() {
 
               <TabsContent value="pending" className="mt-4 space-y-3">
                 {pending.length === 0 && <Empty icon={Package} text="No pending orders right now." />}
+                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                 {pending.map((o) => (
                   <ActiveOrder
                     key={o.id}
@@ -530,10 +533,12 @@ function Admin() {
                     onDeliver={deliverWithOtp}
                   />
                 ))}
+                </div>
               </TabsContent>
 
               <TabsContent value="active" className="mt-4 space-y-3">
                 {active.length === 0 && <Empty icon={Package} text="No active orders right now." />}
+                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                 {active.map((o) => (
                   <ActiveOrder
                     key={o.id}
@@ -548,22 +553,27 @@ function Admin() {
                     onDeliver={deliverWithOtp}
                   />
                 ))}
+                </div>
               </TabsContent>
 
               <TabsContent value="done" className="mt-4 space-y-3">
                 {completed.length === 0 && <Empty icon={Check} text="No completed orders yet." />}
+                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                 {completed.map((o) => (
                   <div key={o.id} className="rounded-3xl border border-border bg-card p-4 shadow-card">
                     <OrderCard order={o} name={names[o.student_id]} coinUsage={coinUsages[o.id]} />
                   </div>
                 ))}
+                </div>
               </TabsContent>
 
               <TabsContent value="cancelled" className="mt-4 space-y-3">
                 {cancelled.length === 0 && <Empty icon={X} text="No cancelled orders." />}
+                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                 {cancelled.map((o) => (
                   <CancelledOrder key={o.id} order={o} name={names[o.student_id]} coinUsage={coinUsages[o.id]} />
                 ))}
+                </div>
               </TabsContent>
             </Tabs>
           </TabsContent>
@@ -882,8 +892,8 @@ function Dashboard({
   );
 
   return (
-    <div className="space-y-3">
-      <div className="grid grid-cols-2 gap-3">
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Stat label="Total revenue" value={rupees(totalRevenue)} />
         <Stat label="Today's revenue" value={rupees(todayRevenue)} />
         <Stat label="Orders today" value={String(ordersToday)} />
@@ -1187,6 +1197,7 @@ function Inventory({
             </Button>
           )}
 
+          <div className="grid gap-3 md:grid-cols-2">
           {products.map((p) => {
             const isEditingThis = editing?.id === p.id;
             return (
@@ -1241,6 +1252,7 @@ function Inventory({
               </div>
             );
           })}
+          </div>
         </>
       )}
     </div>

@@ -121,10 +121,7 @@ export const placeOrderWithPush = createServerFn({ method: 'POST' })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: z.input<typeof orderInputSchema>) => orderInputSchema.parse(input))
   .handler(async ({ data, context }) => {
-    const { QUICK_MIN_ORDER, SCHEDULED_MIN_ORDER } = await import('./scheduled-fee');
-    if (data.delivery_type === 'quick' && data.subtotal < QUICK_MIN_ORDER) {
-      throw new Error(`Minimum order is ₹${QUICK_MIN_ORDER} for Quick Delivery.`);
-    }
+    const { SCHEDULED_MIN_ORDER } = await import('./scheduled-fee');
     if (data.delivery_type === 'sunday_tuesday' && data.subtotal < SCHEDULED_MIN_ORDER) {
       throw new Error(`Minimum order is ₹${SCHEDULED_MIN_ORDER} for Sunday & Tuesday Special.`);
     }

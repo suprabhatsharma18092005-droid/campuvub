@@ -152,7 +152,7 @@ export function PopularCategoriesSection({ className }: { className?: string }) 
         </Link>
       </div>
 
-      <div className="grid grid-cols-3 gap-2.5 sm:gap-3">
+      <div className="grid grid-cols-3 gap-2.5 sm:grid-cols-4 sm:gap-3 md:grid-cols-6 md:gap-3.5">
         {popularBoxes.map((box) => (
           <Link
             key={box.key}

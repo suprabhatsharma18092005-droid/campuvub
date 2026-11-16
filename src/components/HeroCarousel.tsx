@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { supabase } from "@/integrations/supabase/client";
@@ -27,7 +28,7 @@ export const bannersQuery = {
   },
 };
 
-export function HeroCarousel() {
+export function HeroCarousel({ className }: { className?: string }) {
   const banners = useQuery(bannersQuery);
   const [active, setActive] = useState(0);
   const touchStart = useRef<number | null>(null);
@@ -37,7 +38,7 @@ export function HeroCarousel() {
     if (items.length < 2) return;
     const media = window.matchMedia("(prefers-reduced-motion: reduce)");
     if (media.matches) return;
-    const timer = window.setInterval(() => setActive((current) => (current + 1) % items.length), 3000);
+    const timer = window.setInterval(() => setActive((current) => (current + 1) % items.length), 3500);
     return () => window.clearInterval(timer);
   }, [items.length]);
 
@@ -45,15 +46,29 @@ export function HeroCarousel() {
     if (active >= items.length) setActive(0);
   }, [active, items.length]);
 
-  if (banners.isLoading) return <div className="aspect-[16/7] w-full animate-pulse rounded-2xl bg-muted" />;
+  if (banners.isLoading) {
+    return (
+      <div
+        className={cn(
+          "aspect-[16/7] w-full animate-pulse rounded-2xl bg-muted md:aspect-[16/8.5] md:rounded-3xl",
+          className,
+        )}
+      />
+    );
+  }
   if (items.length === 0) return null;
 
   return (
     <section
       aria-label="Offers"
       data-no-tab-swipe
-      className="relative aspect-[16/7] overflow-hidden rounded-2xl bg-muted shadow-card"
-      onTouchStart={(event) => { touchStart.current = event.touches[0]?.clientX ?? null; }}
+      className={cn(
+        "group relative aspect-[16/7] w-full overflow-hidden rounded-2xl border border-border/60 bg-muted shadow-card md:aspect-[16/8.5] md:rounded-3xl",
+        className,
+      )}
+      onTouchStart={(event) => {
+        touchStart.current = event.touches[0]?.clientX ?? null;
+      }}
       onTouchEnd={(event) => {
         const end = event.changedTouches[0]?.clientX;
         const start = touchStart.current;
@@ -64,26 +79,48 @@ export function HeroCarousel() {
     >
       {items[0]?.imageUrl && <link rel="preload" as="image" href={items[0].imageUrl} fetchPriority="high" />}
       {items.map((banner, index) => (
-          <BannerImage
-            key={banner.id}
-            src={banner.imageUrl ?? undefined}
-            alt={banner.alt_text}
-            priority={index === 0}
-            offset={(index - active) * 100}
-          />
+        <BannerImage
+          key={banner.id}
+          src={banner.imageUrl ?? undefined}
+          alt={banner.alt_text}
+          priority={index === 0}
+          offset={(index - active) * 100}
+        />
       ))}
+
       {items.length > 1 && (
-        <div className="absolute bottom-2 left-1/2 flex -translate-x-1/2 gap-1 rounded-full bg-background/90 px-2 py-1">
-          {items.map((banner, index) => (
-            <button
-              key={banner.id}
-              type="button"
-              aria-label={`Show offer ${index + 1}`}
-              onClick={() => setActive(index)}
-              className={cn("h-1.5 w-1.5 rounded-full bg-muted-foreground/40 transition-all", active === index && "w-4 bg-primary")}
-            />
-          ))}
-        </div>
+        <>
+          <button
+            type="button"
+            aria-label="Previous offer"
+            onClick={() => setActive((current) => (current - 1 + items.length) % items.length)}
+            className="hidden sm:grid absolute left-3 top-1/2 h-9 w-9 -translate-y-1/2 place-items-center rounded-full border border-border/60 bg-background/85 text-foreground shadow-card opacity-0 transition-opacity hover:bg-background group-hover:opacity-100 focus-visible:opacity-100"
+          >
+            <ChevronLeft className="h-5 w-5" />
+          </button>
+          <button
+            type="button"
+            aria-label="Next offer"
+            onClick={() => setActive((current) => (current + 1) % items.length)}
+            className="hidden sm:grid absolute right-3 top-1/2 h-9 w-9 -translate-y-1/2 place-items-center rounded-full border border-border/60 bg-background/85 text-foreground shadow-card opacity-0 transition-opacity hover:bg-background group-hover:opacity-100 focus-visible:opacity-100"
+          >
+            <ChevronRight className="h-5 w-5" />
+          </button>
+          <div className="absolute bottom-2.5 left-1/2 flex -translate-x-1/2 gap-1.5 rounded-full bg-background/90 px-2.5 py-1 shadow-xs">
+            {items.map((banner, index) => (
+              <button
+                key={banner.id}
+                type="button"
+                aria-label={`Show offer ${index + 1}`}
+                onClick={() => setActive(index)}
+                className={cn(
+                  "h-1.5 w-1.5 rounded-full bg-muted-foreground/40 transition-all",
+                  active === index && "w-4 bg-primary",
+                )}
+              />
+            ))}
+          </div>
+        </>
       )}
     </section>
   );

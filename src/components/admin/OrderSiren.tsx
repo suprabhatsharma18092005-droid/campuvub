@@ -139,39 +139,49 @@ export function OrderSiren({
         : `${ringingOrders.length} new order${ringingOrders.length > 1 ? "s" : ""} waiting!`;
 
   return (
-    <div className="sticky top-12 z-20 mt-3 flex flex-wrap items-center gap-3 rounded-2xl border-2 border-destructive bg-destructive/10 p-3 shadow-card animate-pulse">
-      {ringingCoins.length > 0 && ringingOrders.length === 0 ? (
-        <Coins className="h-6 w-6 shrink-0 text-destructive" />
-      ) : (
-        <BellRing className="h-6 w-6 shrink-0 text-destructive" />
-      )}
-      <div className="min-w-0 flex-1">
-        <p className="font-display text-sm font-bold text-destructive">{headline}</p>
-        <p className="text-xs text-muted-foreground">
-          {enabled
-            ? audioReady
-              ? "Siren rings until you acknowledge."
-              : "Tap anywhere to enable sound."
-            : "Alerts are off."}
-        </p>
-      </div>
-      <div className="flex items-center gap-2">
-        {ringingCoins.length > 0 && (
-          <Link
-            to="/admin"
-            search={{ tab: "coins" }}
-            className="inline-flex h-8 items-center rounded-full border border-destructive/40 bg-background px-3 text-xs font-bold text-destructive hover:bg-accent"
+    <div
+      role="alert"
+      aria-live="assertive"
+      className="pointer-events-none fixed inset-x-0 top-[3.35rem] z-40 px-4 sm:top-[4.15rem]"
+    >
+      <div className="pointer-events-auto mx-auto flex max-w-4xl flex-wrap items-center gap-3 rounded-2xl border-2 border-destructive bg-card px-4 py-3 text-card-foreground shadow-float">
+        <span className="relative grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-destructive/15 text-destructive">
+          <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 animate-ping rounded-full bg-destructive" />
+          <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-destructive" />
+          {ringingCoins.length > 0 && ringingOrders.length === 0 ? (
+            <Coins className="h-5 w-5" />
+          ) : (
+            <BellRing className="h-5 w-5" />
+          )}
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="font-display text-sm font-extrabold text-destructive">{headline}</p>
+          <p className="text-xs text-muted-foreground">
+            {enabled
+              ? audioReady
+                ? "Siren rings until you acknowledge."
+                : "Tap anywhere to enable sound."
+              : "Alerts are off."}
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          {ringingCoins.length > 0 && (
+            <Link
+              to="/admin"
+              search={{ tab: "coins" }}
+              className="inline-flex h-9 items-center rounded-full border border-destructive/40 bg-background px-3.5 text-xs font-bold text-destructive hover:bg-accent"
+            >
+              Review Coins
+            </Link>
+          )}
+          <Button
+            size="sm"
+            onClick={acknowledge}
+            className="h-9 rounded-full bg-destructive px-4 font-bold text-destructive-foreground shadow-xs hover:opacity-90"
           >
-            Review Coins
-          </Link>
-        )}
-        <Button
-          size="sm"
-          onClick={acknowledge}
-          className="rounded-full bg-destructive text-destructive-foreground hover:opacity-90"
-        >
-          Acknowledge
-        </Button>
+            Acknowledge
+          </Button>
+        </div>
       </div>
     </div>
   );

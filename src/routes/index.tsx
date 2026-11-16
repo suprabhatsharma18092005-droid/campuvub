@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { AppShell } from "@/components/AppShell";
 import { CategoryBrowser } from "@/components/CategoryBrowser";
+import { DeliveryModeToggle } from "@/components/DeliveryModeToggle";
 import { HeroCarousel, bannersQuery } from "@/components/HeroCarousel";
 import { NotificationPermissionBanner } from "@/components/NotificationPermissionBanner";
 import { PopularCategoriesSection } from "@/components/PopularCategoriesSection";
@@ -14,7 +15,7 @@ import { Input } from "@/components/ui/input";
 import { VipHomeBanner, VipPopup } from "@/components/VipBanner";
 import { type CatalogSelection } from "@/lib/catalog-hierarchy";
 import { CATEGORY_MODES_KEY, isCategoryInMode, parseCategoryModes } from "@/lib/category-modes";
-import { productInMode, useDeliveryMode } from "@/lib/delivery";
+import { MODE_LABEL, deliveryInfoText, productInMode, useDeliveryMode, type DeliveryMode } from "@/lib/delivery";
 import { brandsQuery, categoriesQuery, productsQuery, subcategoriesQuery } from "@/lib/queries";
 import { useVip } from "@/lib/vip";
 
@@ -75,8 +76,10 @@ function Home() {
   const navigate = useNavigate();
   const products = useQuery(productsQuery);
   const categories = useQuery(categoriesQuery);
+  const banners = useQuery(bannersQuery);
   const { settings, remaining } = usePreorder();
   const mode = useDeliveryMode();
+  const hasBanners = banners.isLoading || (banners.data?.length ?? 0) > 0;
   const categoryModes = useMemo(
     () => parseCategoryModes(settings.data?.[CATEGORY_MODES_KEY]),
     [settings.data],
@@ -156,14 +159,22 @@ function Home() {
   return (
     <AppShell>
       <HomeVip />
-      <section className="px-4 pt-4">
-        <div className="relative">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+      <section className="px-4 pt-4 lg:flex lg:items-center lg:justify-between lg:gap-6 lg:pt-5">
+        <div className="hidden min-w-0 lg:block">
+          <p className="text-xs font-bold uppercase tracking-wider text-primary">
+            {MODE_LABEL[mode]}
+          </p>
+          <p className="mt-0.5 text-sm font-medium text-muted-foreground">
+            {deliveryInfoText(mode, settings.data)}
+          </p>
+        </div>
+        <div className="relative w-full lg:max-w-md xl:max-w-lg">
+          <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="Search snacks, drinks, essentials…"
-            className="h-11 rounded-full border-border/70 bg-card pl-9 shadow-card"
+            className="h-11 rounded-full border-border/70 bg-card pl-10 shadow-card"
           />
         </div>
       </section>
@@ -178,13 +189,31 @@ function Home() {
         <NotificationPermissionBanner />
       </section>
 
-      <HomeVipBanner />
+      <div className="lg:hidden">
+        <HomeVipBanner mode={mode} className="px-4 pt-4" />
+      </div>
+
       <section className="px-4 pt-4">
-        <HeroCarousel />
+        {hasBanners ? (
+          <div className="grid gap-4 lg:grid-cols-12 lg:items-center lg:gap-5">
+            <div className="min-w-0 lg:col-span-8">
+              <HeroCarousel />
+            </div>
+            <div className="hidden min-w-0 lg:col-span-4 lg:flex lg:flex-col lg:gap-3">
+              <DeliveryModeToggle variant="showcase" />
+              <HomeVipBanner mode={mode} />
+            </div>
+          </div>
+        ) : (
+          <div className="hidden space-y-3 lg:block">
+            <DeliveryModeToggle variant="showcase" className="lg:grid-cols-2 lg:gap-4" />
+            <HomeVipBanner mode={mode} />
+          </div>
+        )}
       </section>
 
       {(categories.data ?? []).length > 0 && (
-        <section className="sticky top-12 z-20 mt-4 border-b border-border/60 bg-background/95 px-4 py-2.5">
+        <section className="sticky top-12 z-20 mt-4 border-b border-border/60 bg-background/95 px-4 py-2.5 md:top-16 md:mx-4 md:rounded-3xl md:border md:border-border/75 md:bg-card/95 md:px-5 md:py-3.5 md:shadow-card">
           <div className="mb-2 flex items-center justify-between">
             <h2 className="font-display text-sm font-bold sm:text-base">Shop by category</h2>
             <Link to="/categories" className="text-xs font-semibold text-primary">
@@ -241,12 +270,12 @@ function HomeVip() {
   return <VipPopup vip={vip} />;
 }
 
-function HomeVipBanner() {
+function HomeVipBanner({ mode, className }: { mode: DeliveryMode; className?: string }) {
   const vip = useVip();
   if (vip.loading || vip.pending) return null;
   return (
-    <section className="px-4 pt-4">
-      <VipHomeBanner vip={vip} />
+    <section className={className}>
+      <VipHomeBanner vip={vip} mode={mode} />
     </section>
   );
 }

@@ -121,7 +121,7 @@ function Categories() {
       <AppShell>
         <div className="animate-product-enter">
           {/* Sticky Category Top Bar */}
-          <div className="sticky top-12 z-20 border-b border-border/60 bg-background/95 px-3 py-2.5">
+          <div className="sticky top-12 z-20 border-b border-border/60 bg-background/95 px-3 py-2.5 md:top-14 md:mx-4 md:mt-3 md:rounded-3xl md:border md:border-border/75 md:bg-card/95 md:px-4 md:shadow-card">
             <div className="flex items-center gap-2.5">
               <button
                 type="button"
@@ -324,7 +324,7 @@ function Categories() {
   return (
     <AppShell>
       {/* Sticky Categories Header & Quick Jump Strip */}
-      <section className="sticky top-12 z-20 border-b border-border/60 bg-background/95 px-4 py-2.5">
+      <section className="sticky top-12 z-20 border-b border-border/60 bg-background/95 px-4 py-2.5 md:top-14 md:mx-4 md:mt-3 md:rounded-3xl md:border md:border-border/75 md:bg-card/95 md:px-5 md:py-3.5 md:shadow-card">
         <div className="flex items-center justify-between">
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-wide text-primary">
@@ -378,7 +378,7 @@ function Categories() {
                   </Link>
                 </div>
 
-                <div className="grid grid-cols-3 gap-2.5 sm:gap-3">
+                <div className="grid grid-cols-3 gap-2.5 sm:grid-cols-4 sm:gap-3 md:grid-cols-5 lg:grid-cols-6">
                   {subs.length > 0 ? (
                     subs.map((sub) => (
                       <Link

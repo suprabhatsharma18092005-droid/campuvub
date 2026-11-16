@@ -21,13 +21,14 @@ import { useEnforceCartMode } from "@/lib/cart";
 import { deliveryFee, makeOtp, rupees } from "@/lib/format";
 import { settingsQuery } from "@/lib/queries";
 import {
-  QUICK_MIN_ORDER,
   SCHEDULED_MIN_ORDER,
   SCHEDULED_ORIGINAL_FEE,
+  VIP_QUICK_DISCOUNT_MIN_ORDER,
+  VIP_QUICK_DISCOUNT_PCT,
   VIP_QUICK_FREE_PER_DAY,
   quickDeliveryFee,
-  quickOrderMinimum,
   scheduledDeliveryFee,
+  vipDiscountedQuickFee,
 } from "@/lib/scheduled-fee";
 import { useVip } from "@/lib/vip";
 import { VipCartHint } from "@/components/VipBanner";
@@ -92,7 +93,6 @@ function Checkout() {
   const [useCoins, setUseCoins] = useState(false);
   const [coinAmountInput, setCoinAmountInput] = useState("");
   const scheduled = deliveryMode === "sunday_tuesday" ? scheduledDeliveryFee(subtotal, vip.isVip) : null;
-  const quickMin = deliveryMode === "quick" ? quickOrderMinimum(subtotal) : null;
   const normalQuickFee = deliveryFee(settings.data, method);
   const fee = scheduled ? (scheduled.fee ?? 0) : quickDeliveryFee(normalQuickFee, subtotal, vip.isVip, vip.freeUsedToday);
   const nightMode = settings.data?.["night_mode_enabled"] === "true";
@@ -109,7 +109,6 @@ function Checkout() {
   const canPlace =
     items.length > 0 &&
     (!scheduled || scheduled.eligible) &&
-    (!quickMin || quickMin.eligible) &&
     complete &&
     !editingAddress &&
     Boolean(hostel && room && phone) &&
@@ -166,10 +165,6 @@ function Checkout() {
     const sched = orderMode === "sunday_tuesday" ? scheduledDeliveryFee(subtotal, freshVip) : null;
     if (sched && !sched.eligible) {
       toast.error(`Minimum order is ₹${SCHEDULED_MIN_ORDER} for Sunday & Tuesday Special.`);
-      return;
-    }
-    if (orderMode === "quick" && !quickOrderMinimum(subtotal).eligible) {
-      toast.error(`Minimum order is ₹${QUICK_MIN_ORDER} for Quick Delivery.`);
       return;
     }
     const currentFee = sched ? (sched.fee ?? 0) : quickDeliveryFee(deliveryFee(current, method), subtotal, freshVip, fresh?.freeUsedToday ?? 0);
@@ -492,8 +487,12 @@ function Checkout() {
             title="UPI"
             badge="Recommended"
             subtitle={
-              deliveryMode === "quick" && vip.isVip && vip.freeUsedToday < VIP_QUICK_FREE_PER_DAY
-                ? "Delivery fee FREE (Campu VIP) — pay now and share your UTR."
+              deliveryMode === "quick" && vip.isVip
+                ? vip.freeUsedToday < VIP_QUICK_FREE_PER_DAY
+                  ? "Delivery fee FREE (1st VIP order today) — pay now and share your UTR."
+                  : subtotal >= VIP_QUICK_DISCOUNT_MIN_ORDER
+                    ? `Delivery fee ${rupees(vipDiscountedQuickFee(deliveryFee(settings.data, "UPI")))} (${VIP_QUICK_DISCOUNT_PCT}% VIP OFF on ₹${VIP_QUICK_DISCOUNT_MIN_ORDER}+) — pay now and share your UTR.`
+                    : `Delivery fee ${rupees(deliveryFee(settings.data, "UPI"))} (normal rate below ₹${VIP_QUICK_DISCOUNT_MIN_ORDER}; ₹${VIP_QUICK_DISCOUNT_MIN_ORDER}+ gets ${VIP_QUICK_DISCOUNT_PCT}% OFF) — pay now and share your UTR.`
                 : `Delivery fee ${rupees(deliveryFee(settings.data, "UPI"))} — pay now and share your UTR.`
             }
           />
@@ -502,8 +501,12 @@ function Checkout() {
             onClick={() => setMethod("COD")}
             title="Cash on Delivery"
             subtitle={
-              deliveryMode === "quick" && vip.isVip && vip.freeUsedToday < VIP_QUICK_FREE_PER_DAY
-                ? "Delivery fee FREE (Campu VIP) — pay cash on delivery."
+              deliveryMode === "quick" && vip.isVip
+                ? vip.freeUsedToday < VIP_QUICK_FREE_PER_DAY
+                  ? "Delivery fee FREE (1st VIP order today) — pay cash on delivery."
+                  : subtotal >= VIP_QUICK_DISCOUNT_MIN_ORDER
+                    ? `Delivery fee ${rupees(vipDiscountedQuickFee(deliveryFee(settings.data, "COD")))} (${VIP_QUICK_DISCOUNT_PCT}% VIP OFF on ₹${VIP_QUICK_DISCOUNT_MIN_ORDER}+) — pay cash on delivery.`
+                    : `Delivery fee ${rupees(deliveryFee(settings.data, "COD"))} (normal rate below ₹${VIP_QUICK_DISCOUNT_MIN_ORDER}; ₹${VIP_QUICK_DISCOUNT_MIN_ORDER}+ gets ${VIP_QUICK_DISCOUNT_PCT}% OFF) — pay cash on delivery.`
                 : `Delivery fee ${rupees(deliveryFee(settings.data, "COD"))} — includes extra handling charge.`
             }
             warning
@@ -613,8 +616,14 @@ function Checkout() {
           ) : (
             fee < normalQuickFee ? (
               <div className="flex justify-between py-1 text-sm">
-                <span className="text-muted-foreground">Delivery fee ({paidFullyByCoins ? "Coins" : method}) · VIP 👑</span>
-                <span className="font-semibold"><s className="mr-1.5 font-normal text-muted-foreground">{rupees(normalQuickFee)}</s>FREE</span>
+                <span className="text-muted-foreground">
+                  Delivery fee ({paidFullyByCoins ? "Coins" : method}) ·{" "}
+                  {fee === 0 ? "VIP 👑" : `VIP ${VIP_QUICK_DISCOUNT_PCT}% OFF 🏷️`}
+                </span>
+                <span className="font-semibold">
+                  <s className="mr-1.5 font-normal text-muted-foreground">{rupees(normalQuickFee)}</s>
+                  {fee === 0 ? "FREE" : rupees(fee)}
+                </span>
               </div>
             ) : (
               <Row label={`Delivery fee (${paidFullyByCoins ? "UPI rate" : method})`} value={rupees(fee)} />
@@ -626,11 +635,6 @@ function Checkout() {
           {scheduled && !scheduled.eligible && (
             <p className="mt-1 text-xs font-semibold text-destructive">
               Minimum order is ₹{SCHEDULED_MIN_ORDER} for Sunday & Tuesday Special. Add ₹{scheduled.shortBy} more to place your order.
-            </p>
-          )}
-          {quickMin && !quickMin.eligible && (
-            <p className="mt-1 text-xs font-semibold text-destructive">
-              Minimum order is ₹{QUICK_MIN_ORDER} for Quick Delivery. Add ₹{quickMin.shortBy} more to place your order.
             </p>
           )}
           <VipCartHint vip={vip} mode={deliveryMode} subtotal={subtotal} />

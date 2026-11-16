@@ -1,10 +1,10 @@
 /** Quick Delivery, Sunday & Tuesday Special, and VIP pricing rules (shared by cart, checkout, VIP, and server). */
-export const QUICK_MIN_ORDER = 50;
 export const SCHEDULED_MIN_ORDER = 99;
 export const SCHEDULED_ORIGINAL_FEE = 25;
 export const VIP_PRICE = 149;
 export const VIP_QUICK_FREE_PER_DAY = 1;
-export const VIP_QUICK_MIN_ORDER = 50;
+export const VIP_QUICK_DISCOUNT_MIN_ORDER = 50;
+export const VIP_QUICK_DISCOUNT_PCT = 50;
 
 export type ScheduledFee = {
   /** False below the ₹99 minimum — the order must not be placed. */
@@ -19,17 +19,9 @@ export type ScheduledFee = {
   next: { at: number; fee: number; addMore: number } | null;
 };
 
-export type QuickOrderMinimum = {
-  eligible: boolean;
-  shortBy: number;
-};
-
-export function quickOrderMinimum(subtotal: number): QuickOrderMinimum {
-  const s = Math.max(0, Number(subtotal) || 0);
-  if (s < QUICK_MIN_ORDER) {
-    return { eligible: false, shortBy: Math.ceil(QUICK_MIN_ORDER - s) };
-  }
-  return { eligible: true, shortBy: 0 };
+export function vipDiscountedQuickFee(normalFee: number): number {
+  const safe = Math.max(0, Number(normalFee) || 0);
+  return Math.round(safe * (100 - VIP_QUICK_DISCOUNT_PCT)) / 100;
 }
 
 const TIERS = [
@@ -54,9 +46,15 @@ export function scheduledDeliveryFee(subtotal: number, vip = false): ScheduledFe
   };
 }
 
-/** Quick delivery: VIPs get free delivery on 1 order per day (minimum ₹50 order value); otherwise the normal fee. */
+/**
+ * Quick delivery:
+ * - Non-VIPs always pay the normal fee with no minimum order limit.
+ * - VIPs get 1 FREE quick delivery per day on any order amount.
+ * - After 1 free order per day, VIPs get 50% OFF on ₹50+ orders, and pay the normal fee below ₹50.
+ */
 export function quickDeliveryFee(normalFee: number, subtotal: number, vip: boolean, freeUsedToday: number): number {
+  if (!vip) return normalFee;
+  if (freeUsedToday < VIP_QUICK_FREE_PER_DAY) return 0;
   const s = Math.max(0, Number(subtotal) || 0);
-  if (vip && freeUsedToday < VIP_QUICK_FREE_PER_DAY && s >= VIP_QUICK_MIN_ORDER) return 0;
-  return normalFee;
+  return s >= VIP_QUICK_DISCOUNT_MIN_ORDER ? vipDiscountedQuickFee(normalFee) : normalFee;
 }

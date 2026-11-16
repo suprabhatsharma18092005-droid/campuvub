@@ -193,7 +193,8 @@ function ProfilePage() {
 
   return (
     <AppShell>
-      <div className="px-4 pt-5">
+      <div className="px-4 pt-5 pb-8 md:grid md:grid-cols-12 md:items-start md:gap-6">
+        <div className="min-w-0 md:col-span-5">
         {isRoyalProfile ? (
           <div className="relative overflow-hidden rounded-3xl border border-primary/50 bg-royal p-4 text-white shadow-float">
             <div className="animate-gold-shimmer pointer-events-none absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-primary/30 via-white/80 to-primary/30" />
@@ -217,10 +218,10 @@ function ProfilePage() {
             </div>
           </div>
         ) : (
-          <>
+          <div className="rounded-3xl border border-border/70 bg-card p-4 shadow-card">
             <h1 className="font-display text-2xl font-bold">Your profile</h1>
             <p className="text-sm text-muted-foreground">{session?.user.email}</p>
-          </>
+          </div>
         )}
         {isAdmin && (
           <div className="mt-4 grid grid-cols-2 gap-2.5">
@@ -249,7 +250,7 @@ function ProfilePage() {
         <Link
           to="/vip"
           className={cn(
-            "mt-4 flex items-center justify-between rounded-2xl border p-3.5 text-sm font-semibold transition-colors",
+            "mt-4 flex items-center justify-between rounded-2xl border p-3.5 text-sm font-semibold shadow-card transition-colors",
             "border-primary/40 bg-accent text-primary",
           )}
         >
@@ -278,12 +279,14 @@ function ProfilePage() {
           </span>
           <span className="shrink-0 text-xs font-bold text-primary">Buy / Use →</span>
         </Link>
+        </div>
 
+        <div className="min-w-0 md:col-span-7">
         {/* 3. Color Theme (Floating Modal Trigger) */}
         <button
           type="button"
           onClick={() => setThemeOpen(true)}
-          className="mt-4 flex w-full items-center justify-between gap-3 rounded-2xl border border-border bg-card p-4 text-left shadow-card transition-all hover:bg-muted/40 active:scale-[0.99]"
+          className="mt-4 flex w-full items-center justify-between gap-3 rounded-2xl border border-border bg-card p-4 text-left shadow-card transition-all hover:bg-muted/40 active:scale-[0.99] md:mt-0"
         >
           <div className="flex min-w-0 items-center gap-3">
             <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-accent text-primary">
@@ -332,10 +335,10 @@ function ProfilePage() {
                 <strong className="text-foreground">1. Delivery Schedule & Timings:</strong> Orders operate in India Standard Time (Asia/Kolkata). Quick Delivery items arrive within the displayed estimate; Sunday & Tuesday Special Delivery orders are delivered on the upcoming scheduled slot.
               </li>
               <li>
-                <strong className="text-foreground">2. Minimum Order & Fees:</strong> Quick Delivery requires a minimum ₹50 order. Sunday & Tuesday Special Delivery requires a ₹99 minimum order.
+                <strong className="text-foreground">2. Minimum Order &amp; Fees:</strong> Quick Delivery has no minimum order for normal users (standard delivery fees apply). Sunday &amp; Tuesday Special Delivery requires a ₹99 minimum order.
               </li>
               <li>
-                <strong className="text-foreground">3. Campu VIP Membership:</strong> The ₹149 pass is valid for 30 days from approval and includes 1 free Quick Delivery per day (minimum ₹50 order), plus discounted Sunday & Tuesday Special Delivery rates. Membership activates only after UTR verification.
+                <strong className="text-foreground">3. Campu VIP Membership:</strong> The ₹149 pass is valid for 30 days from approval and includes 1 free Quick Delivery per day (on any order amount), an automatic 50% discount on additional Quick Deliveries of ₹50+ the same day (normal delivery charge below ₹50), and discounted Sunday &amp; Tuesday Special Delivery rates. Membership activates only after UTR verification.
               </li>
               <li>
                 <strong className="text-foreground">4. Payments & UTR Verification:</strong> All UPI payments require a valid 12-digit UTR/reference number. Duplicate or unverified UTR submissions will be rejected. Confirmed orders cannot be cancelled once dispatched.
@@ -400,6 +403,7 @@ function ProfilePage() {
         <Button variant="ghost" className="mt-4 h-11 w-full rounded-full" onClick={signOut}>
           <LogOut className="mr-2 h-4 w-4" /> Sign out
         </Button>
+        </div>
 
         {/* Floating Color Theme Picker Dialog */}
         <Dialog open={themeOpen} onOpenChange={setThemeOpen}>
