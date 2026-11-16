@@ -21,7 +21,7 @@ export type AppThemePreset = {
   vars: Record<string, string>;
 };
 
-export const DEFAULT_THEME_ID: AppThemeId = "emerald";
+export const DEFAULT_THEME_ID: AppThemeId = "pink";
 export const THEME_SETTING_KEY = "app_theme_color";
 export const THEME_STORAGE_KEY = "campu.theme.v1";
 
@@ -466,11 +466,10 @@ export function applyAppTheme(id?: string | null): AppThemePreset {
   if (manifestLink) {
     manifestLink.setAttribute("href", `/api/public/manifest?theme=${preset.id}`);
   }
-  const iconUrl = `/api/public/pwa-icon?theme=${preset.id}&size=192&purpose=any`;
   const faviconLink = document.querySelector('link[rel="icon"]');
-  if (faviconLink) faviconLink.setAttribute("href", iconUrl);
+  if (faviconLink) faviconLink.setAttribute("href", "/pwa-192x192.png");
   const appleIconLink = document.querySelector('link[rel="apple-touch-icon"]');
-  if (appleIconLink) appleIconLink.setAttribute("href", iconUrl);
+  if (appleIconLink) appleIconLink.setAttribute("href", "/apple-touch-icon.png");
 
   try {
     document.cookie = `campu_theme=${encodeURIComponent(preset.id)}; path=/; max-age=31536000; SameSite=Lax`;

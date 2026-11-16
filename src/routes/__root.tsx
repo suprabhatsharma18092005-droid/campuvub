@@ -137,8 +137,10 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
-      { name: "theme-color", content: "#067D35" },
+      { name: "theme-color", content: "#BE185D" },
+      { name: "mobile-web-app-capable", content: "yes" },
       { name: "apple-mobile-web-app-capable", content: "yes" },
+      { name: "apple-mobile-web-app-title", content: "Campu" },
 
     ],
     links: [
@@ -149,9 +151,9 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
         rel: "stylesheet",
         href: "https://fonts.googleapis.com/css2?family=Outfit:wght@500;600;700;800&family=DM+Sans:wght@400;500;600;700&display=swap",
       },
-      { rel: "icon", type: "image/png", href: "/api/public/pwa-icon?size=192&purpose=any" },
+      { rel: "icon", type: "image/png", href: "/pwa-192x192.png" },
       { rel: "manifest", href: "/api/public/manifest" },
-      { rel: "apple-touch-icon", href: "/api/public/pwa-icon?size=192&purpose=any" },
+      { rel: "apple-touch-icon", href: "/apple-touch-icon.png" },
 
     ],
   }),

@@ -245,6 +245,20 @@ export function generateThemedPwaIconPng(
   size: 192 | 512,
   purpose: "any" | "maskable" = "any",
 ): Buffer {
+  const staticFile =
+    purpose === "maskable"
+      ? "pwa-maskable-512x512.png"
+      : size === 512
+        ? "pwa-512x512.png"
+        : "pwa-192x192.png";
+  for (const dir of ["public", ".output/public"]) {
+    try {
+      return readFileSync(resolve(process.cwd(), dir, staticFile));
+    } catch {
+      // Fall back to procedural generator if static asset isn't found
+    }
+  }
+
   const normalizedTheme = normalizeThemeId(themeId);
   const cacheKey = `${normalizedTheme}:${size}:${purpose}`;
   const hit = iconCache.get(cacheKey);

@@ -292,7 +292,7 @@ const DEFAULT_SETTINGS: Row[] = [
   { key: "sunday_tuesday_delivery_time", value: "10:00" },
   { key: "quick_delivery_estimate", value: "15–20 min" },
   { key: "vip_price", value: "149" },
-  { key: "app_theme_color", value: "emerald" },
+  { key: "app_theme_color", value: "pink" },
 ];
 
 const tables: Record<string, Row[]> = {

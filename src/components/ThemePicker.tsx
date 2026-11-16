@@ -109,14 +109,14 @@ export function ThemePicker({
       <div className="flex w-full min-w-0 items-center justify-between gap-2.5 overflow-hidden rounded-xl border border-border/70 bg-background px-3 py-2">
         <div className="flex min-w-0 flex-1 items-center gap-2.5">
           <img
-            src={`/api/public/pwa-icon?theme=${activeThemeId}&size=192&purpose=any`}
+            src="/pwa-192x192.png"
             alt="App icon preview"
             className="h-9 w-9 shrink-0 rounded-xl shadow-xs"
           />
           <div className="min-w-0 flex-1">
             <p className="truncate text-xs font-bold text-foreground">Home screen app icon</p>
             <p className="line-clamp-2 text-[11px] leading-tight text-muted-foreground">
-              Automatically matches your active theme color on install.
+              This Campu logo appears when installed from your browser.
             </p>
           </div>
         </div>

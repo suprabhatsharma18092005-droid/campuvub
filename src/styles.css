@@ -67,25 +67,25 @@
 }
 
 :root {
-  /* Default Eco Emerald 3-color theme: crisp emerald, soft mint surface, deep forest ink */
+  /* Default Rose Pink 3-color theme matching the Campu logo */
   --radius: 0.875rem;
 
-  --background: #f3faf5;
-  --foreground: #111e16;
+  --background: #fdf4f8;
+  --foreground: #211118;
   --card: #ffffff;
-  --card-foreground: #111e16;
+  --card-foreground: #211118;
   --popover: #ffffff;
-  --popover-foreground: #111e16;
+  --popover-foreground: #211118;
 
-  --primary: #067d35;
+  --primary: #be185d;
   --primary-foreground: #ffffff;
-  --secondary: #e7f3eb;
-  --secondary-foreground: #14291c;
+  --secondary: #fae8f0;
+  --secondary-foreground: #3a1426;
 
-  --muted: #eaf4ed;
-  --muted-foreground: #53685a;
-  --accent: #dff3e6;
-  --accent-foreground: #065c27;
+  --muted: #fbeaf2;
+  --muted-foreground: #705160;
+  --accent: #fce0ed;
+  --accent-foreground: #941148;
 
   --destructive: oklch(0.6 0.22 25);
   --destructive-foreground: oklch(1 0 0);
@@ -93,42 +93,42 @@
   --success-foreground: #ffffff;
   --phonepe: #5f259f;
   --phonepe-foreground: oklch(1 0 0);
-  --delivery-quick: #dff3e6;
-  --delivery-scheduled: #e9f6d9;
+  --delivery-quick: #fce0ed;
+  --delivery-scheduled: #fae9f7;
   --warning: oklch(0.79 0.15 75);
   --warning-foreground: oklch(0.28 0.06 60);
-  --price-badge: #dff3e6;
-  --price-badge-foreground: #065c27;
-  --category-tile: #e3f4e9;
-  --scheduled-order-border: #9fd6b4;
-  --scheduled-order-from: #eaf8ef;
-  --scheduled-order-via: #e3f5ea;
-  --scheduled-order-to: #dcf2e5;
+  --price-badge: #fce0ed;
+  --price-badge-foreground: #941148;
+  --category-tile: #fce5f0;
+  --scheduled-order-border: #f4a6ca;
+  --scheduled-order-from: #fef0f6;
+  --scheduled-order-via: #fde3ef;
+  --scheduled-order-to: #fbd8e8;
 
-  --border: #d2e7d9;
-  --input: #d2e7d9;
-  --ring: #067d35;
+  --border: #f1d1e0;
+  --input: #f1d1e0;
+  --ring: #be185d;
 
-  --chart-1: #067d35;
-  --chart-2: #0b9642;
-  --chart-3: #10b954;
-  --chart-4: #14b8a6;
-  --chart-5: #05682b;
+  --chart-1: #be185d;
+  --chart-2: #db2777;
+  --chart-3: #e91f72;
+  --chart-4: #f472b6;
+  --chart-5: #9d174d;
 
-  --sidebar: #f6fbf8;
-  --sidebar-foreground: #111e16;
-  --sidebar-primary: #067d35;
+  --sidebar: #fdf4f8;
+  --sidebar-foreground: #211118;
+  --sidebar-primary: #be185d;
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #dff3e6;
-  --sidebar-accent-foreground: #065c27;
-  --sidebar-border: #d2e7d9;
-  --sidebar-ring: #067d35;
+  --sidebar-accent: #fce0ed;
+  --sidebar-accent-foreground: #941148;
+  --sidebar-border: #f1d1e0;
+  --sidebar-ring: #be185d;
 
-  --gradient-brand: linear-gradient(110deg, #067d35 0%, #0b9642 55%, #05682b 100%);
-  --gradient-soft: linear-gradient(160deg, #f3faf5 0%, #e5f5eb 100%);
-  --gradient-royal: linear-gradient(135deg, #0b9642 0%, #067d35 55%, #046c2e 100%);
-  --shadow-card: 0 1px 2px oklch(0.2 0.02 150 / 0.06), 0 6px 16px -12px oklch(0.2 0.02 150 / 0.25);
-  --shadow-float: 0 6px 20px -6px oklch(0.2 0.02 150 / 0.25);
+  --gradient-brand: linear-gradient(110deg, #be185d 0%, #db2777 55%, #9d174d 100%);
+  --gradient-soft: linear-gradient(160deg, #fdf4f8 0%, #fce4ef 100%);
+  --gradient-royal: linear-gradient(135deg, #db2777 0%, #be185d 55%, #9d174d 100%);
+  --shadow-card: 0 1px 2px oklch(0.2 0.02 350 / 0.06), 0 6px 16px -12px oklch(0.2 0.02 350 / 0.25);
+  --shadow-float: 0 6px 20px -6px oklch(0.2 0.02 350 / 0.25);
 }
 
 

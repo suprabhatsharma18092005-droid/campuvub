@@ -44,29 +44,23 @@ export const Route = createFileRoute("/api/public/manifest")({
           start_url: "/",
           scope: "/",
           display: "standalone",
-          background_color: preset.vars["--background"] ?? "#f3faf5",
+          background_color: preset.vars["--background"] ?? "#fdf4f8",
           theme_color: preset.themeColor,
           icons: [
             {
-              src: `/api/public/pwa-icon?theme=${themeId}&size=192&purpose=any`,
+              src: "/pwa-192x192.png",
               sizes: "192x192",
               type: "image/png",
               purpose: "any",
             },
             {
-              src: `/api/public/pwa-icon?theme=${themeId}&size=192&purpose=maskable`,
-              sizes: "192x192",
-              type: "image/png",
-              purpose: "maskable",
-            },
-            {
-              src: `/api/public/pwa-icon?theme=${themeId}&size=512&purpose=any`,
+              src: "/pwa-512x512.png",
               sizes: "512x512",
               type: "image/png",
               purpose: "any",
             },
             {
-              src: `/api/public/pwa-icon?theme=${themeId}&size=512&purpose=maskable`,
+              src: "/pwa-maskable-512x512.png",
               sizes: "512x512",
               type: "image/png",
               purpose: "maskable",
