@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 
@@ -18,7 +18,7 @@ import { MODE_LABEL, deliveryInfoText, productInMode } from "@/lib/delivery";
 import { useEnforceCartMode } from "@/lib/cart";
 import { deliveryFee, makeOtp, rupees } from "@/lib/format";
 import { settingsQuery } from "@/lib/queries";
-import { SCHEDULED_MIN_ORDER, SCHEDULED_ORIGINAL_FEE, quickDeliveryFee, scheduledDeliveryFee } from "@/lib/scheduled-fee";
+import { SCHEDULED_MIN_ORDER, SCHEDULED_ORIGINAL_FEE, VIP_QUICK_FREE_PER_DAY, quickDeliveryFee, scheduledDeliveryFee } from "@/lib/scheduled-fee";
 import { useVip } from "@/lib/vip";
 import { VipCartHint } from "@/components/VipBanner";
 import { isProfileComplete, useProfile, useSession } from "@/lib/session";
@@ -42,6 +42,7 @@ export const Route = createFileRoute("/_authenticated/checkout")({
 });
 
 function Checkout() {
+  const queryClient = useQueryClient();
   const { items, subtotal, clear } = useCart();
   const { session } = useSession();
   const { data: profile, isLoading: profileLoading } = useProfile();
@@ -143,10 +144,27 @@ function Checkout() {
       toast.error("Delivery fee changed. Review your total before ordering.");
       return;
     }
-    const { data: prods } = await supabase.from("products").select("id, delivery_types");
-    const ok = new Map((prods ?? []).map((p) => [p.id, productInMode(p.delivery_types, orderMode)]));
-    if (items.some((i) => !ok.get(i.id))) {
+    const { data: prods } = await supabase
+      .from("products")
+      .select("id, name, delivery_types, stock_quantity, in_stock")
+      .in("id", items.map((i) => i.id));
+    const prodMap = new Map((prods ?? []).map((p) => [p.id, p]));
+    if (items.some((i) => !productInMode(prodMap.get(i.id)?.delivery_types, orderMode))) {
       toast.error("Some items aren't available for this delivery type and were removed.");
+      return;
+    }
+    const shortItem = items.find((i) => {
+      const p = prodMap.get(i.id);
+      return !p || !p.in_stock || p.stock_quantity < i.qty;
+    });
+    if (shortItem) {
+      const available = prodMap.get(shortItem.id)?.stock_quantity ?? 0;
+      void queryClient.invalidateQueries({ queryKey: ["products"] });
+      toast.error(
+        available > 0
+          ? `Only ${available} left for ${shortItem.name}. Please adjust your cart.`
+          : `${shortItem.name} just went out of stock.`,
+      );
       return;
     }
     setBusy(true);
@@ -167,9 +185,11 @@ function Checkout() {
         delivery_date: orderMode === "sunday_tuesday" ? sundayTuesdayDeliveryDate() : null,
       } });
     } catch (error) {
+      void queryClient.invalidateQueries({ queryKey: ["products"] });
       toast.error(error instanceof Error ? error.message : "Could not place order");
       return;
     } finally { setBusy(false); }
+    void queryClient.invalidateQueries({ queryKey: ["products"] });
     clear();
     toast.success("Order placed!");
     void navigate({ to: "/orders/$id", params: { id: data.id } });
@@ -230,7 +250,7 @@ function Checkout() {
 
         <div className="grid gap-5 md:mt-4 md:grid-cols-2 md:items-start md:gap-6">
           <div className="min-w-0">
-        <div className="mt-4 rounded-2xl border border-border bg-card p-4 shadow-card">
+        <div className="royal-card mt-4 rounded-2xl border border-border bg-card p-4 shadow-card">
           <div className="flex items-start justify-between gap-3">
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               Delivering to
@@ -299,7 +319,7 @@ function Checkout() {
           )}
         </div>
 
-        <div className="mt-4 rounded-2xl border border-border bg-card p-4 shadow-card">
+        <div className="royal-card mt-4 rounded-2xl border border-border bg-card p-4 shadow-card">
           <h2 className="font-display text-base font-bold">Your items</h2>
           <p className="mt-1 text-xs font-semibold text-primary">
             {MODE_LABEL[deliveryMode]} · {deliveryInfoText(deliveryMode, settings.data)}
@@ -333,19 +353,27 @@ function Checkout() {
             onClick={() => setMethod("UPI")}
             title="UPI"
             badge="Recommended"
-            subtitle={`Delivery fee ${rupees(deliveryFee(settings.data, "UPI"))} — pay now and share your UTR.`}
+            subtitle={
+              deliveryMode === "quick" && vip.isVip && vip.freeUsedToday < VIP_QUICK_FREE_PER_DAY
+                ? "Delivery fee FREE (Campu VIP) — pay now and share your UTR."
+                : `Delivery fee ${rupees(deliveryFee(settings.data, "UPI"))} — pay now and share your UTR.`
+            }
           />
           {!nightMode && <MethodCard
             active={method === "COD"}
             onClick={() => setMethod("COD")}
             title="Cash on Delivery"
-            subtitle={`Delivery fee ${rupees(deliveryFee(settings.data, "COD"))} — includes extra handling charge.`}
+            subtitle={
+              deliveryMode === "quick" && vip.isVip && vip.freeUsedToday < VIP_QUICK_FREE_PER_DAY
+                ? "Delivery fee FREE (Campu VIP) — pay cash on delivery."
+                : `Delivery fee ${rupees(deliveryFee(settings.data, "COD"))} — includes extra handling charge.`
+            }
             warning
           />}
         </div>
 
         {method === "UPI" && (
-          <div className="mt-4 rounded-2xl border border-border bg-card p-4 shadow-card">
+          <div className="royal-card mt-4 rounded-2xl border border-border bg-card p-4 shadow-card">
             <div className="grid place-items-center">
               <div ref={qrWrapRef} className="rounded-xl bg-white p-3">
                 <QRCodeCanvas value={upiQrValue} size={200} marginSize={2} level="M" />
@@ -432,7 +460,7 @@ function Checkout() {
           </div>
         )}
 
-        <div className="mt-6 rounded-2xl border border-border bg-card p-4 shadow-card">
+        <div className="royal-card mt-6 rounded-2xl border border-border bg-card p-4 shadow-card">
           <Row label={`Items (${items.length})`} value={rupees(subtotal)} />
           {scheduled ? (
             <div className="flex justify-between py-1 text-sm">

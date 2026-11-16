@@ -1,5 +1,4 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect } from "react";
 import { toast } from "sonner";
 
 import { formatVipDate } from "@/components/VipBanner";
@@ -29,12 +28,6 @@ export const vipAdminQuery = {
 export function VipRequests() {
   const qc = useQueryClient();
   const q = useQuery(vipAdminQuery);
-  useEffect(() => {
-    const ch = supabase.channel(`admin-vip-${Math.random().toString(36).slice(2)}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "vip_subscriptions" }, () => void qc.invalidateQueries({ queryKey: ["admin-vip"] }))
-      .subscribe();
-    return () => { void supabase.removeChannel(ch); };
-  }, [qc]);
 
   async function review(id: string, status: "approved" | "rejected") {
     if (status === "rejected" && !confirm("Reject this VIP payment?")) return;
@@ -56,7 +49,7 @@ export function VipRequests() {
         {pending.length === 0 && <p className="mt-2 text-sm text-muted-foreground">No pending VIP requests.</p>}
         <div className="mt-2 space-y-3">
           {pending.map((r) => (
-            <div key={r.id} className="rounded-2xl border border-border bg-card p-4 shadow-card">
+            <div key={r.id} className="royal-card rounded-2xl border border-primary/40 bg-card p-4 shadow-card">
               <p className="font-semibold">{r.name}{r.phone ? ` · ${r.phone}` : ""}</p>
               <p className="text-sm text-muted-foreground">{rupees(r.amount)} · UTR <b className="text-foreground">{r.utr_number}</b></p>
               <p className="text-xs text-muted-foreground">{new Date(r.created_at).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })}</p>

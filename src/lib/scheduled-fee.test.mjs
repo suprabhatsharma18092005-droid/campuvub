@@ -18,10 +18,10 @@ test("VIP: ₹99 to ₹299 pay ₹3", () => {
 test("VIP: ₹300 and above is free", () => {
   expect(scheduledDeliveryFee(300, true)).toMatchObject({ fee: 0, normalFee: 10 });
 });
-test("VIP quick delivery is free for 2 orders of ₹99+ per day", () => {
-  expect(quickDeliveryFee(5, 99, true, 0)).toBe(0);
+test("VIP quick delivery is free for 2 orders per day with no minimum order value", () => {
+  expect(quickDeliveryFee(5, 20, true, 0)).toBe(0);
+  expect(quickDeliveryFee(5, 98, true, 0)).toBe(0);
   expect(quickDeliveryFee(5, 120, true, 1)).toBe(0);
   expect(quickDeliveryFee(5, 120, true, 2)).toBe(5);
-  expect(quickDeliveryFee(5, 98, true, 0)).toBe(5);
   expect(quickDeliveryFee(5, 200, false, 0)).toBe(5);
 });

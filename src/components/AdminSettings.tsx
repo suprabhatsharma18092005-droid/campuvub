@@ -6,11 +6,13 @@ import { useServerFn } from "@tanstack/react-start";
 
 import { sendTestPushToMe } from "@/lib/push.functions";
 
+import { ThemePicker } from "@/components/ThemePicker";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { supabase } from "@/integrations/supabase/client";
 import { settingsQuery } from "@/lib/queries";
+import { DEFAULT_THEME_ID, THEME_SETTING_KEY, applyAppTheme, type AppThemeId } from "@/lib/themes";
 import { QR_BUCKET, useUpiQrImage } from "@/lib/upi";
 import { CATALOG_BUCKET, catalogReference, removeCatalogImage, resolveCatalogImage, uploadCatalogImage } from "@/lib/catalog-media";
 
@@ -36,6 +38,8 @@ export function AdminSettings() {
   const [uploading, setUploading] = useState(false);
   const qr = useUpiQrImage(data?.["upi_qr_path"] || undefined);
 
+  const [savingTheme, setSavingTheme] = useState<AppThemeId | null>(null);
+
   useEffect(() => {
     if (data) setValues({
       upi_delivery_charge: data["upi_delivery_charge"] ?? "5",
@@ -46,8 +50,25 @@ export function AdminSettings() {
       order_start_time: data["order_start_time"] ?? "",
       sunday_tuesday_delivery_time: data["sunday_tuesday_delivery_time"] ?? "10:00",
       quick_delivery_estimate: data["quick_delivery_estimate"] ?? "15–20 min",
+      [THEME_SETTING_KEY]: data[THEME_SETTING_KEY] ?? DEFAULT_THEME_ID,
     });
   }, [data]);
+
+  async function selectTheme(themeId: AppThemeId, themeName: string) {
+    setValues((prev) => (prev ? { ...prev, [THEME_SETTING_KEY]: themeId } : prev));
+    applyAppTheme(themeId);
+    setSavingTheme(themeId);
+    const { error } = await supabase
+      .from("app_settings")
+      .upsert({ key: THEME_SETTING_KEY, value: themeId }, { onConflict: "key" });
+    setSavingTheme(null);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    toast.success(`Theme changed to ${themeName}`);
+    void queryClient.invalidateQueries({ queryKey: ["app_settings"] });
+  }
 
   async function save() {
     if (!values) return;
@@ -135,8 +156,17 @@ export function AdminSettings() {
   if (isError) return <p className="py-8 text-center text-sm text-destructive">Could not load settings.</p>;
   if (isLoading || !values) return <p className="py-8 text-center text-sm text-muted-foreground">Loading settings…</p>;
 
+  const activeThemeId = values[THEME_SETTING_KEY] ?? DEFAULT_THEME_ID;
+
   return (
     <div className="space-y-6 pb-6">
+      <ThemePicker
+        activeThemeId={activeThemeId}
+        disabled={savingTheme !== null}
+        description="Choose any of 12 three-color themes. Changes apply across the entire app for all users."
+        onSelect={(id, name) => void selectTheme(id, name)}
+      />
+
       <section className="space-y-4">
         <h2 className="font-display text-lg font-bold">Payment settings</h2>
         {FEES.map(({ key, label }) => (

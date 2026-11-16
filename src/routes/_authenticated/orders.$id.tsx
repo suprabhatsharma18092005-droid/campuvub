@@ -3,12 +3,13 @@ import { cancelOrderWithPush } from "@/lib/push.functions";
 import { deliveryLabel, formatDeliveryDate } from "@/lib/delivery";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { Check, Clock3, Loader2, XCircle } from "lucide-react";
+import { Check, Clock3, Loader2, Star, XCircle } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { AppShell } from "@/components/AppShell";
 import { CatalogImage } from "@/components/CatalogImage";
+import { OrderReplacementPanel } from "@/components/OrderReplacementPanel";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -20,10 +21,16 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { supabase } from "@/integrations/supabase/client";
 import { rupees, STATUS_LABELS, trackSteps } from "@/lib/format";
-import { usePreorder } from "@/components/PreorderNotice";
+import { PreorderNotice, usePreorder } from "@/components/PreorderNotice";
 import { countdownLabel, wasPlacedDuringPreorder } from "@/lib/ordering";
+import { settingsQuery } from "@/lib/queries";
+import { parseOrderReplacement, readLocalReplacement, replacementSettingKey } from "@/lib/replacements";
+import { saveLocalReview, useLocalReviews } from "@/lib/reviews";
+import { submitProductReview } from "@/lib/reviews.functions";
+import { useProfile, useSession } from "@/lib/session";
 import { useSignedAsset } from "@/lib/upi";
 import { cn } from "@/lib/utils";
 
@@ -46,9 +53,11 @@ function OrderDetail() {
   const queryClient = useQueryClient();
   const cancelOrder = useServerFn(cancelOrderWithPush);
   const { settings: preorderSettings, remaining: preorderRemaining } = usePreorder();
+  const appSettings = useQuery(settingsQuery);
   
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [cancelling, setCancelling] = useState(false);
+  const [replacementTick, setReplacementTick] = useState(0);
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
@@ -117,7 +126,7 @@ function OrderDetail() {
   }
 
   const items =
-    (order.cart_items as { name: string; qty: number; price: number; image_url?: string | null }[]) ??
+    (order.cart_items as { id?: string; name: string; qty: number; price: number; image_url?: string | null }[]) ??
     [];
   const cancelled = order.status === "cancelled";
   const delivered = order.status === "delivered";
@@ -131,6 +140,11 @@ function OrderDetail() {
 
   const isUpi = order.payment_method === "UPI";
   const acceptedAt = order.accepted_at ? new Date(order.accepted_at).getTime() : null;
+  const hasRefundFlow =
+    isUpi &&
+    (acceptedAt !== null ||
+      order.refund_status === "pending" ||
+      order.refund_status === "refunded");
   const graceMin = acceptedAt === null ? Infinity : (now - acceptedAt) / 60_000;
   // Free 3-minute cancellation window that opens only once the order is accepted.
   const canCancel = order.status === "accepted" && graceMin <= 3;
@@ -139,6 +153,19 @@ function OrderDetail() {
     order.status !== "delivered" &&
     !canCancel;
   const showOtp = order.delivery_otp && !cancelled && order.status !== "delivered";
+
+  const remoteReplacement = parseOrderReplacement(
+    appSettings.data?.[replacementSettingKey(order.id)],
+  );
+  const localReplacement =
+    replacementTick >= 0 ? readLocalReplacement(order.id) : null;
+  const activeReplacement =
+    localReplacement &&
+    (!remoteReplacement ||
+      new Date(localReplacement.updatedAt).getTime() >
+        new Date(remoteReplacement.updatedAt).getTime())
+      ? localReplacement
+      : remoteReplacement;
 
   async function doCancel() {
     setCancelling(true);
@@ -206,13 +233,17 @@ function OrderDetail() {
           )}
           {cancelled ? (
             <div className="flex items-center gap-3 text-destructive">
-              <XCircle className="h-6 w-6" />
+              <XCircle className="h-6 w-6 shrink-0" />
               <div>
                 <p className="font-semibold">Order cancelled</p>
                 <p className="text-xs text-muted-foreground">
-                  {order.payment_method === "UPI"
-                    ? "Your payment reference could not be verified. Please contact support."
-                    : "This order was cancelled."}
+                  {!isUpi
+                    ? "This order was cancelled."
+                    : !hasRefundFlow
+                      ? "Your payment reference could not be verified. Please contact support."
+                      : order.refund_status === "refunded"
+                        ? "This order was cancelled. Your UPI refund has been sent."
+                        : "This order was cancelled. Your UPI refund will be processed within 1 to 3 hours."}
                 </p>
               </div>
             </div>
@@ -266,6 +297,14 @@ function OrderDetail() {
           )}
         </div>
 
+        {!cancelled && !delivered && activeReplacement && (
+          <OrderReplacementPanel
+            order={order}
+            replacement={activeReplacement}
+            onUpdated={() => setReplacementTick((n) => n + 1)}
+          />
+        )}
+
         <div className="mt-5 rounded-2xl border border-border bg-card p-4 shadow-card">
           <h2 className="font-display text-base font-bold">Items</h2>
           <ul className="mt-2 space-y-1.5 text-sm">
@@ -291,7 +330,9 @@ function OrderDetail() {
           </p>
         </div>
 
-        {cancelled && isUpi && order.refund_status === "refunded" && (
+        {delivered && <OrderReviewSection orderId={order.id} items={items} />}
+
+        {cancelled && hasRefundFlow && order.refund_status === "refunded" && (
           <RefundSuccess path={order.refund_proof_url} />
         )}
 
@@ -394,6 +435,169 @@ function DeliveredSuccess() {
       </div>
       <p className="mt-4 font-display text-lg font-extrabold text-success">Delivered successfully</p>
       <p className="mt-1 text-xs text-muted-foreground">Enjoy your order!</p>
+    </div>
+  );
+}
+
+function OrderReviewSection({
+  orderId,
+  items,
+}: {
+  orderId: string;
+  items: { id?: string; name: string; qty: number; price: number; image_url?: string | null }[];
+}) {
+  const { session } = useSession();
+  const { data: profile } = useProfile();
+  const queryClient = useQueryClient();
+  const submitRemote = useServerFn(submitProductReview);
+  const localReviews = useLocalReviews();
+  const [ratings, setRatings] = useState<Record<string, number>>({});
+  const [comments, setComments] = useState<Record<string, string>>({});
+  const [submittingId, setSubmittingId] = useState<string | null>(null);
+
+  const reviewable = items.filter((item): item is typeof item & { id: string } => Boolean(item.id));
+  if (reviewable.length === 0) return null;
+
+  const userName =
+    profile?.full_name?.trim() ||
+    (session?.user.user_metadata?.["full_name"] as string | undefined)?.trim() ||
+    session?.user.email?.split("@")[0] ||
+    "Campus Student";
+
+  async function handleSubmit(productId: string, productName: string) {
+    const rating = ratings[productId] ?? 5;
+    const comment = (comments[productId] ?? "").trim();
+    setSubmittingId(productId);
+    const now = new Date().toISOString();
+
+    saveLocalReview({
+      id: `${orderId}:${productId}`,
+      orderId,
+      productId,
+      rating,
+      comment,
+      userName,
+      createdAt: now,
+    });
+
+    if (session?.user.id) {
+      try {
+        await supabase.from("suggestions").insert({
+          user_id: session.user.id,
+          user_name: userName,
+          suggestion_text: JSON.stringify({
+            type: "product_review",
+            orderId,
+            productId,
+            productName,
+            rating,
+            comment,
+          }),
+        });
+      } catch {
+        // Ignore network/RLS failures; local review is already saved
+      }
+    }
+
+    await submitRemote({
+      data: {
+        orderId,
+        productId,
+        rating,
+        comment,
+        userName,
+      },
+    }).catch(() => undefined);
+
+    setSubmittingId(null);
+    void queryClient.invalidateQueries({ queryKey: ["app_settings"] });
+    toast.success(`Thanks for reviewing ${productName}!`);
+  }
+
+  return (
+    <div className="mt-5 rounded-2xl border border-primary/30 bg-card p-4 shadow-card">
+      <div className="flex items-center gap-2">
+        <Star className="h-5 w-5 fill-amber-400 text-amber-500" />
+        <div>
+          <h2 className="font-display text-base font-bold">Rate & Review Your Items</h2>
+          <p className="text-xs text-muted-foreground">
+            Your ratings help rank Popular Right Now for everyone on campus.
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-3 space-y-3">
+        {reviewable.map((item) => {
+          const existing = localReviews.find(
+            (r) => r.orderId === orderId && r.productId === item.id,
+          );
+          const selectedRating = ratings[item.id] ?? existing?.rating ?? 5;
+
+          return (
+            <div
+              key={item.id}
+              className="rounded-xl border border-border/70 bg-background p-3"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="min-w-0 flex-1 truncate text-sm font-bold">{item.name}</span>
+                {existing && (
+                  <span className="rounded-full bg-accent px-2 py-0.5 text-[10px] font-bold text-primary">
+                    Reviewed ★ {existing.rating}
+                  </span>
+                )}
+              </div>
+
+              {!existing ? (
+                <>
+                  <div className="mt-2 flex items-center gap-1">
+                    {[1, 2, 3, 4, 5].map((star) => (
+                      <button
+                        key={star}
+                        type="button"
+                        aria-label={`Rate ${star} stars`}
+                        onClick={() => setRatings((prev) => ({ ...prev, [item.id]: star }))}
+                        className="p-0.5 transition-transform active:scale-90"
+                      >
+                        <Star
+                          className={cn(
+                            "h-6 w-6",
+                            star <= selectedRating
+                              ? "fill-amber-400 text-amber-500"
+                              : "text-muted-foreground/40",
+                          )}
+                        />
+                      </button>
+                    ))}
+                  </div>
+                  <div className="mt-2 flex gap-2">
+                    <Input
+                      value={comments[item.id] ?? ""}
+                      onChange={(e) =>
+                        setComments((prev) => ({ ...prev, [item.id]: e.target.value }))
+                      }
+                      placeholder="Write a quick review (optional)…"
+                      className="h-9 rounded-xl text-xs"
+                    />
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={submittingId === item.id}
+                      onClick={() => void handleSubmit(item.id, item.name)}
+                      className="h-9 shrink-0 rounded-xl bg-brand px-3 text-xs font-bold text-primary-foreground"
+                    >
+                      {submittingId === item.id ? "Saving…" : "Submit"}
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                existing.comment && (
+                  <p className="mt-1.5 text-xs text-muted-foreground">"{existing.comment}"</p>
+                )
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

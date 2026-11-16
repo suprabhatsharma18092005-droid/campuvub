@@ -1,9 +1,10 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate, useSearch } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import {
   Bell,
   Check,
+  Crown,
   IndianRupee,
   Megaphone,
   Package,
@@ -17,6 +18,7 @@ import {
   X,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { z } from "zod";
 import { deliveryLabel, formatDeliveryDate } from "@/lib/delivery";
 import { toast } from "sonner";
 
@@ -32,16 +34,21 @@ import { Textarea } from "@/components/ui/textarea";
 import { supabase } from "@/integrations/supabase/client";
 import { rupees, STATUS_LABELS } from "@/lib/format";
 import { notifyBroadcast, updateOrderWithPush } from "@/lib/push.functions";
-import { brandsQuery, categoriesQuery, productsQuery, subcategoriesQuery } from "@/lib/queries";
+import { brandsQuery, categoriesQuery, productsQuery, settingsQuery, subcategoriesQuery } from "@/lib/queries";
+import { type OrderReplacement } from "@/lib/replacements";
 import { CatalogHierarchyManager } from "@/components/admin/CatalogHierarchyManager";
+import { OrderReplacementManager } from "@/components/admin/OrderReplacementManager";
 import { OrderSiren } from "@/components/admin/OrderSiren";
-import { VipRequests } from "@/components/admin/VipRequests";
+import { VipRequests, vipAdminQuery } from "@/components/admin/VipRequests";
 import { useRoles, useSession } from "@/lib/session";
 import { QR_BUCKET } from "@/lib/upi";
 import { catalogReference, removeCatalogImage, uploadCatalogImage } from "@/lib/catalog-media";
 import { cn } from "@/lib/utils";
 
+const ADMIN_TABS = new Set(["dashboard", "queue", "orders", "stock", "vip", "blast", "settings"]);
+
 export const Route = createFileRoute("/_authenticated/admin")({
+  validateSearch: z.object({ tab: z.string().optional() }),
   head: () => ({
     meta: [
       { property: "og:type", content: "website" },
@@ -76,6 +83,7 @@ type OrderRow = {
   refund_status: string;
   refund_proof_url: string | null;
   created_at: string;
+  accepted_at: string | null;
   cancelled_at: string | null;
   delivery_type?: string | null;
   delivery_date?: string | null;
@@ -93,11 +101,29 @@ function Admin() {
   const { session } = useSession();
   const { data: roles, isLoading: rolesLoading } = useRoles();
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const { tab: searchTab } = useSearch({ from: "/_authenticated/admin" });
+  const initialTab = searchTab && ADMIN_TABS.has(searchTab) ? searchTab : "dashboard";
+  const [activeTab, setActiveTab] = useState(initialTab);
+  const [orderDeliveryFilter, setOrderDeliveryFilter] = useState<"all" | "quick" | "sunday_tuesday">("all");
   const updateOrder = useServerFn(updateOrderWithPush);
   const [sound, setSound] = useState(true);
+  const [busyOrderId, setBusyOrderId] = useState<string | null>(null);
   const seen = useRef<Set<string>>(new Set());
 
   const isStaff = roles?.includes("admin") ?? false;
+
+  useEffect(() => {
+    if (searchTab && ADMIN_TABS.has(searchTab)) {
+      setActiveTab(searchTab);
+    }
+  }, [searchTab]);
+
+  const vipRequests = useQuery({
+    ...vipAdminQuery,
+    enabled: Boolean(isStaff),
+    refetchInterval: 20_000,
+  });
 
   const orders = useQuery({
     queryKey: ["admin-orders"],
@@ -118,6 +144,48 @@ function Admin() {
   });
 
   const products = useQuery({ ...productsQuery, enabled: Boolean(isStaff) });
+  const appSettings = useQuery({ ...settingsQuery, enabled: Boolean(isStaff) });
+
+  const replacementSuggestions = useQuery({
+    queryKey: ["admin-replacement-suggestions"],
+    enabled: Boolean(isStaff),
+    refetchInterval: 20_000,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("suggestions")
+        .select("suggestion_text, created_at")
+        .order("created_at", { ascending: false })
+        .limit(100);
+      if (error) return {} as Record<string, OrderReplacement>;
+      const map: Record<string, OrderReplacement> = {};
+      for (const row of data ?? []) {
+        try {
+          const parsed = JSON.parse(row.suggestion_text) as {
+            type?: string;
+            orderId?: string;
+            record?: OrderReplacement;
+          };
+          if (
+            parsed?.type === "order_replacement_response" &&
+            parsed.orderId &&
+            parsed.record
+          ) {
+            const existing = map[parsed.orderId];
+            if (
+              !existing ||
+              new Date(parsed.record.updatedAt).getTime() >
+                new Date(existing.updatedAt).getTime()
+            ) {
+              map[parsed.orderId] = parsed.record;
+            }
+          }
+        } catch {
+          // Non-JSON suggestion row
+        }
+      }
+      return map;
+    },
+  });
 
   const customers = useQuery({
     queryKey: ["admin-profiles"],
@@ -146,6 +214,20 @@ function Admin() {
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "orders" }, () => {
         void queryClient.invalidateQueries({ queryKey: ["admin-orders"] });
       })
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "suggestions" }, () => {
+        void queryClient.invalidateQueries({ queryKey: ["admin-replacement-suggestions"] });
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "vip_subscriptions" }, (payload) => {
+        if (payload.eventType === "INSERT") {
+          toast.info("👑 New VIP Pass Request received!", {
+            action: {
+              label: "Review",
+              onClick: () => setActiveTab("vip"),
+            },
+          });
+        }
+        void queryClient.invalidateQueries({ queryKey: ["admin-vip"] });
+      })
       .subscribe();
     return () => {
       void supabase.removeChannel(channel);
@@ -154,11 +236,14 @@ function Admin() {
   }, [isStaff, queryClient, sound]);
 
   async function updateStatus(id: string, status: string) {
+    setBusyOrderId(id);
     try {
       await updateOrder({ data: { orderId: id, status } });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not update order");
       return;
+    } finally {
+      setBusyOrderId(null);
     }
     toast.success(`Order marked ${STATUS_LABELS[status]}`);
     void queryClient.invalidateQueries({ queryKey: ["admin-orders"] });
@@ -216,17 +301,38 @@ function Admin() {
 
   const all = orders.data ?? [];
   const names = customers.data ?? {};
+  const isOrderQuick = (o: OrderRow) => (o.delivery_type ?? "quick") === "quick";
+  const isOrderSpecial = (o: OrderRow) => o.delivery_type === "sunday_tuesday";
+  const modeFilteredOrders =
+    orderDeliveryFilter === "all"
+      ? all
+      : all.filter((o) => (orderDeliveryFilter === "sunday_tuesday" ? isOrderSpecial(o) : isOrderQuick(o)));
   const queue = all.filter((o) => o.status === "payment_review");
-  const pending = all.filter((o) => ["pending", "payment_review"].includes(o.status));
-  const active = all.filter((o) => ["accepted", "out_for_delivery"].includes(o.status));
-  const completed = all.filter((o) => o.status === "delivered");
-  const cancelled = all.filter((o) => o.status === "cancelled");
+  const pending = modeFilteredOrders.filter((o) => ["pending", "payment_review"].includes(o.status));
+  const active = modeFilteredOrders.filter((o) => ["accepted", "out_for_delivery"].includes(o.status));
+  const completed = modeFilteredOrders.filter((o) => o.status === "delivered");
+  const cancelled = modeFilteredOrders.filter((o) => o.status === "cancelled");
+  const pendingVipCount = (vipRequests.data ?? []).filter((r) => r.status === "pending").length;
+
+  function onTabChange(nextTab: string) {
+    setActiveTab(nextTab);
+    void navigate({
+      to: "/admin",
+      search: nextTab === "dashboard" ? {} : { tab: nextTab },
+      replace: true,
+    });
+  }
 
   return (
     <AppShell>
       <div className="px-4 pt-5">
         <div className="flex items-center justify-between">
-          <h1 className="font-display text-2xl font-bold">Admin</h1>
+          <div className="flex items-center gap-2">
+            <h1 className="font-display text-2xl font-bold">Admin</h1>
+            <span className="inline-flex items-center gap-1 rounded-full border border-primary/35 bg-accent px-2.5 py-0.5 text-[11px] font-bold text-primary">
+              <Crown className="h-3 w-3" /> Store Owner
+            </span>
+          </div>
           <Button
             type="button"
             variant="outline"
@@ -241,7 +347,7 @@ function Admin() {
 
         <OrderSiren orders={all} enabled={sound} />
 
-        <Tabs defaultValue="dashboard" className="mt-4">
+        <Tabs value={activeTab} onValueChange={onTabChange} className="mt-4">
           <TabsList className="flex w-full justify-start gap-1 overflow-x-auto">
             <TabsTrigger value="dashboard">Stats</TabsTrigger>
             <TabsTrigger value="queue">
@@ -249,7 +355,15 @@ function Admin() {
             </TabsTrigger>
             <TabsTrigger value="orders">Orders</TabsTrigger>
             <TabsTrigger value="stock">Inventory</TabsTrigger>
-            <TabsTrigger value="vip">VIP</TabsTrigger>
+            <TabsTrigger value="vip" className="relative gap-1.5">
+              <span>VIP</span>
+              {pendingVipCount > 0 && (
+                <span className="relative inline-flex items-center gap-1 rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-extrabold text-primary-foreground">
+                  <span className="h-1.5 w-1.5 animate-ping rounded-full bg-primary-foreground" />
+                  {pendingVipCount}
+                </span>
+              )}
+            </TabsTrigger>
             <TabsTrigger value="blast">Blast</TabsTrigger>
             <TabsTrigger value="settings"><Settings2 className="mr-1 h-4 w-4" /> Settings</TabsTrigger>
           </TabsList>
@@ -278,13 +392,16 @@ function Admin() {
                 </div>
                 <div className="mt-3 flex gap-2">
                   <Button
-                    onClick={() => updateStatus(o.id, "accepted")}
+                    disabled={busyOrderId === o.id}
+                    onClick={() => void updateStatus(o.id, "accepted")}
                     className="h-11 flex-1 rounded-full bg-success text-success-foreground hover:opacity-90"
                   >
-                    <Check className="mr-1.5 h-4 w-4" /> Verify & Accept
+                    <Check className="mr-1.5 h-4 w-4" />{" "}
+                    {busyOrderId === o.id ? "Updating…" : "Verify & Accept"}
                   </Button>
                   <Button
-                    onClick={() => updateStatus(o.id, "cancelled")}
+                    disabled={busyOrderId === o.id}
+                    onClick={() => void updateStatus(o.id, "cancelled")}
                     variant="outline"
                     className="h-11 flex-1 rounded-full border-destructive text-destructive"
                   >
@@ -295,19 +412,52 @@ function Admin() {
             ))}
           </TabsContent>
 
-      <TabsContent value="orders" className="mt-4">
+      <TabsContent value="orders" className="mt-4 space-y-3">
+            <div className="flex items-center gap-1.5 rounded-2xl border border-border/70 bg-card p-1.5 shadow-card">
+              {(
+                [
+                  ["all", `All (${all.length})`],
+                  ["quick", `Quick (${all.filter(isOrderQuick).length})`],
+                  ["sunday_tuesday", `Sun/Tue Special (${all.filter(isOrderSpecial).length})`],
+                ] as const
+              ).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setOrderDeliveryFilter(value)}
+                  className={cn(
+                    "flex-1 rounded-xl px-2.5 py-2 text-xs font-bold transition-colors",
+                    orderDeliveryFilter === value
+                      ? "bg-brand text-primary-foreground shadow-xs"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
             <Tabs defaultValue="active">
               <TabsList className="grid w-full grid-cols-4">
-                <TabsTrigger value="pending">Pending</TabsTrigger>
-                <TabsTrigger value="active">Active</TabsTrigger>
-                <TabsTrigger value="done">Completed</TabsTrigger>
-                <TabsTrigger value="cancelled">Cancelled</TabsTrigger>
+                <TabsTrigger value="pending">Pending ({pending.length})</TabsTrigger>
+                <TabsTrigger value="active">Active ({active.length})</TabsTrigger>
+                <TabsTrigger value="done">Done ({completed.length})</TabsTrigger>
+                <TabsTrigger value="cancelled">Cancelled ({cancelled.length})</TabsTrigger>
               </TabsList>
 
               <TabsContent value="pending" className="mt-4 space-y-3">
                 {pending.length === 0 && <Empty icon={Package} text="No pending orders right now." />}
                 {pending.map((o) => (
-                  <ActiveOrder key={o.id} order={o} name={names[o.student_id]} onAdvance={updateStatus} onDeliver={deliverWithOtp} />
+                  <ActiveOrder
+                    key={o.id}
+                    order={o}
+                    name={names[o.student_id]}
+                    products={products.data ?? []}
+                    settings={appSettings.data}
+                    fallbackReplacement={replacementSuggestions.data?.[o.id]}
+                    updating={busyOrderId === o.id}
+                    onAdvance={updateStatus}
+                    onDeliver={deliverWithOtp}
+                  />
                 ))}
               </TabsContent>
 
@@ -318,6 +468,10 @@ function Admin() {
                     key={o.id}
                     order={o}
                     name={names[o.student_id]}
+                    products={products.data ?? []}
+                    settings={appSettings.data}
+                    fallbackReplacement={replacementSuggestions.data?.[o.id]}
+                    updating={busyOrderId === o.id}
                     onAdvance={updateStatus}
                     onDeliver={deliverWithOtp}
                   />
@@ -416,11 +570,19 @@ function OrderCard({ order, name }: { order: OrderRow; name: string | undefined 
 function ActiveOrder({
   order,
   name,
+  products,
+  settings,
+  fallbackReplacement,
+  updating,
   onAdvance,
   onDeliver,
 }: {
   order: OrderRow;
   name: string | undefined;
+  products: ProductRow[];
+  settings: Record<string, string> | undefined;
+  fallbackReplacement?: OrderReplacement | null | undefined;
+  updating: boolean;
   onAdvance: (id: string, status: string) => Promise<void>;
   onDeliver: (order: OrderRow, otp: string) => Promise<boolean>;
 }) {
@@ -431,6 +593,22 @@ function ActiveOrder({
   return (
     <div className="rounded-3xl border border-border bg-card p-4 shadow-card">
       <OrderCard order={order} name={name} />
+
+      {order.status === "payment_review" && order.utr_number && (
+        <div className="mt-3 rounded-2xl bg-muted/50 px-3 py-2">
+          <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
+            Submitted UTR
+          </p>
+          <p className="font-mono text-sm font-extrabold tracking-wider">{order.utr_number}</p>
+        </div>
+      )}
+
+      <OrderReplacementManager
+        order={order}
+        products={products}
+        settings={settings}
+        fallbackResponse={fallbackReplacement}
+      />
 
       {order.status === "out_for_delivery" && (
       <div className="mt-3 rounded-2xl border border-border bg-muted/40 p-3">
@@ -446,7 +624,7 @@ function ActiveOrder({
             className="h-11 flex-1 rounded-xl text-center font-display text-lg tracking-[0.3em]"
           />
           <Button
-            disabled={otp.length !== 4 || busy}
+            disabled={otp.length !== 4 || busy || updating}
             onClick={async () => {
               setBusy(true);
               const ok = await onDeliver(order, otp);
@@ -455,7 +633,7 @@ function ActiveOrder({
             }}
             className="h-11 rounded-full bg-success text-success-foreground hover:opacity-90"
           >
-            Mark delivered
+            {busy ? "Verifying…" : "Mark delivered"}
           </Button>
         </div>
       </div>
@@ -464,18 +642,20 @@ function ActiveOrder({
       <div className="mt-3 flex gap-2">
         {next && (
           <Button
+            disabled={updating || busy}
             onClick={() => void onAdvance(order.id, next.status)}
             className="h-10 flex-1 rounded-full bg-brand text-primary-foreground hover:opacity-95"
           >
-            {next.label}
+            {updating ? "Updating…" : next.label}
           </Button>
         )}
         <Button
+          disabled={updating || busy}
           onClick={() => void onAdvance(order.id, "cancelled")}
           variant="ghost"
           className="h-10 rounded-full text-destructive"
         >
-          Cancel
+          {order.status === "payment_review" ? "Reject" : "Cancel"}
         </Button>
       </div>
     </div>
@@ -486,6 +666,11 @@ function CancelledOrder({ order, name }: { order: OrderRow; name: string | undef
   const queryClient = useQueryClient();
   const [busy, setBusy] = useState(false);
   const isUpi = order.payment_method === "UPI";
+  const wasAccepted =
+    Boolean(order.accepted_at) ||
+    order.refund_status === "pending" ||
+    order.refund_status === "refunded";
+  const needsRefund = isUpi && wasAccepted;
   const refunded = order.refund_status === "refunded";
 
   async function upload(file: File) {
@@ -528,7 +713,12 @@ function CancelledOrder({ order, name }: { order: OrderRow; name: string | undef
   return (
     <div className="rounded-3xl border border-border bg-card p-4 shadow-card">
       <OrderCard order={order} name={name} />
-      {isUpi && (
+      {isUpi && !needsRefund && (
+        <p className="mt-3 rounded-2xl border border-border/70 bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+          UPI payment was rejected before acceptance — no refund required.
+        </p>
+      )}
+      {needsRefund && (
         <div className="mt-3 rounded-2xl border border-border bg-muted/40 p-3">
           {refunded ? (
             <p className="flex items-center gap-2 text-sm font-semibold text-success">
@@ -537,7 +727,7 @@ function CancelledOrder({ order, name }: { order: OrderRow; name: string | undef
           ) : (
             <>
               <p className="text-xs text-muted-foreground">
-                Refund {rupees(order.total)} by UPI, then upload the payment screenshot.
+                Order was accepted then cancelled. Refund {rupees(order.total)} by UPI, then upload the payment screenshot.
               </p>
               <label className="mt-2 flex h-11 cursor-pointer items-center justify-center gap-2 rounded-full bg-brand text-sm font-semibold text-primary-foreground">
                 <Upload className="h-4 w-4" />
@@ -652,6 +842,7 @@ function Inventory({
   const categories = useQuery(categoriesQuery);
   const allSubcategories = useQuery(subcategoriesQuery).data ?? [];
   const allBrands = useQuery(brandsQuery).data ?? [];
+  const [section, setSection] = useState<"products" | "categories">("products");
   const [editing, setEditing] = useState<ProductRow | null>(null);
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState({ name: "", description: "", category_id: "", subcategory_id: "", brand_id: "", price: "", stock: "10" });
@@ -661,6 +852,12 @@ function Inventory({
   const [photo, setPhoto] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
 
+  function closeEditor() {
+    setAdding(false);
+    setEditing(null);
+    setPhoto(null);
+  }
+
   function openAdd() {
     setEditing(null);
     setPhoto(null);
@@ -669,12 +866,16 @@ function Inventory({
     setAdding(true);
   }
 
-  function openEdit(product: ProductRow) {
+  function toggleInlineEdit(product: ProductRow) {
+    if (editing?.id === product.id) {
+      closeEditor();
+      return;
+    }
+    setAdding(false);
     setEditing(product);
     setPhoto(null);
     setForm({ name: product.name, description: product.description ?? "", category_id: product.category_id ?? "", subcategory_id: product.subcategory_id ?? "", brand_id: product.brand_id ?? "", price: String(product.price), stock: String(product.stock_quantity) });
     setDeliveryTypes(product.delivery_types?.length ? product.delivery_types : ["quick"]);
-    setAdding(true);
   }
 
   async function saveProduct() {
@@ -710,9 +911,7 @@ function Inventory({
       if (result.error) throw result.error;
       if (uploadedPath && editing?.image_path) await removeCatalogImage(editing.image_path).catch(() => undefined);
       toast.success(editing ? "Product updated" : "Product added");
-      setAdding(false);
-      setEditing(null);
-      setPhoto(null);
+      closeEditor();
       void queryClient.invalidateQueries({ queryKey: ["products"] });
     } catch (error) {
       if (uploadedPath) await removeCatalogImage(uploadedPath).catch(() => undefined);
@@ -730,151 +929,213 @@ function Inventory({
       return;
     }
     if (product?.image_path) await removeCatalogImage(product.image_path).catch(() => undefined);
+    if (editing?.id === id) closeEditor();
     toast.success("Product removed");
     void queryClient.invalidateQueries({ queryKey: ["products"] });
   }
 
+  function renderProductEditor() {
+    return (
+      <div className="space-y-2.5 rounded-2xl border border-primary/25 bg-background/80 p-3.5">
+        <div className="flex items-center justify-between">
+          <h3 className="font-display text-base font-bold">{editing ? `Edit: ${editing.name}` : "Add product"}</h3>
+          <Button type="button" size="sm" variant="ghost" onClick={closeEditor} className="h-8 rounded-full px-2">
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+        <label className="block text-xs font-medium" htmlFor="product-name">Product Name</label>
+        <Input
+          id="product-name"
+          value={form.name}
+          onChange={(e) => setForm((current) => ({ ...current, name: e.target.value }))}
+          className="h-11 rounded-xl bg-card"
+        />
+        <label className="block text-xs font-medium" htmlFor="product-description">Description</label>
+        <Textarea id="product-description" value={form.description} onChange={(e) => setForm((current) => ({ ...current, description: e.target.value }))} className="min-h-20 rounded-xl bg-card" />
+        <fieldset className="space-y-2 rounded-xl border border-border bg-card p-3">
+          <legend className="px-1 text-xs font-medium">Delivery option (choose at least one)</legend>
+          {([["quick", "Quick Delivery"], ["sunday_tuesday", "Sunday/Tuesday Delivery"]] as const).map(([value, label]) => (
+            <label key={value} className="flex items-center justify-between gap-3 text-sm">
+              <span>{label}</span>
+              <Switch
+                checked={deliveryTypes.includes(value)}
+                onCheckedChange={(on) =>
+                  setDeliveryTypes((cur) => (on ? Array.from(new Set([...cur, value])) : cur.filter((v) => v !== value)))
+                }
+              />
+            </label>
+          ))}
+        </fieldset>
+        <label className="block text-xs font-medium">Category</label>
+        {(categories.data ?? []).length === 0 ? (
+          <div className="flex items-center justify-between gap-2 rounded-xl border border-dashed border-border bg-card px-3 py-2.5 text-sm text-muted-foreground">
+            <span>Add a category first</span>
+            <Button type="button" size="sm" variant="outline" className="rounded-full" onClick={() => setSection("categories")}>
+              Add category
+            </Button>
+          </div>
+        ) : <>
+          <Select value={form.category_id} onValueChange={(category_id) => setForm((current) => ({ ...current, category_id, subcategory_id: "", brand_id: "" }))}>
+            <SelectTrigger className="h-11 rounded-xl bg-card" aria-label="Category"><SelectValue placeholder="Choose category" /></SelectTrigger>
+            <SelectContent>{(categories.data ?? []).map((category) => <SelectItem key={category.id} value={category.id}>{category.name}</SelectItem>)}</SelectContent>
+          </Select>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="block text-xs font-medium">Subcategory <span className="text-muted-foreground">(optional)</span></label>
+              <Select
+                value={form.subcategory_id || NONE}
+                disabled={subcategoryOptions.length === 0}
+                onValueChange={(value) => setForm((current) => ({ ...current, subcategory_id: value === NONE ? "" : value, brand_id: "" }))}
+              >
+                <SelectTrigger className="h-11 rounded-xl bg-card" aria-label="Subcategory"><SelectValue placeholder={subcategoryOptions.length ? "None" : "No subcategories"} /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NONE}>None</SelectItem>
+                  {subcategoryOptions.map((s) => <SelectItem key={s.id} value={s.id}>{s.name}{s.is_active ? "" : " (hidden)"}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium">Brand <span className="text-muted-foreground">(optional)</span></label>
+              <Select
+                value={form.brand_id || NONE}
+                disabled={brandOptions.length === 0}
+                onValueChange={(value) => setForm((current) => ({ ...current, brand_id: value === NONE ? "" : value }))}
+              >
+                <SelectTrigger className="h-11 rounded-xl bg-card" aria-label="Brand"><SelectValue placeholder={brandOptions.length ? "None" : "No brands"} /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NONE}>None</SelectItem>
+                  {brandOptions.map((b) => <SelectItem key={b.id} value={b.id}>{b.name}{b.is_active ? "" : " (hidden)"}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        </>}
+        <div className="grid grid-cols-2 gap-2">
+          <div><label className="block text-xs font-medium" htmlFor="product-price">Price</label><Input id="product-price" value={form.price} onChange={(e) => setForm((current) => ({ ...current, price: e.target.value }))} inputMode="decimal" className="h-11 rounded-xl bg-card" /></div>
+          <div><label className="block text-xs font-medium" htmlFor="product-stock">Stock Quantity</label><Input id="product-stock" value={form.stock} onChange={(e) => setForm((current) => ({ ...current, stock: e.target.value }))} inputMode="numeric" className="h-11 rounded-xl bg-card" /></div>
+        </div>
+        <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-input bg-card px-3 py-3 text-sm font-medium">
+          <Upload className="h-4 w-4" /> {photo?.name ?? (editing?.image_path || editing?.image_url ? "Replace product photo" : "Upload product photo")}
+          <input type="file" accept="image/*" className="sr-only" onChange={(event) => setPhoto(event.target.files?.[0] ?? null)} />
+        </label>
+        <div className="flex gap-2">
+          <Button
+            disabled={saving}
+            onClick={() => void saveProduct()}
+            className="h-11 flex-1 rounded-full bg-brand text-primary-foreground"
+          >
+            {saving ? "Saving…" : editing ? "Update product" : "Save product"}
+          </Button>
+          <Button variant="ghost" className="h-11 rounded-full" onClick={closeEditor}>
+            Cancel
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-3">
-      <CatalogHierarchyManager products={products} />
-      {adding ? (
-        <div className="space-y-2 rounded-3xl border border-border bg-card p-4 shadow-card">
-          <h2 className="font-display text-lg font-bold">{editing ? "Edit product" : "Add product"}</h2>
-          <label className="block text-xs font-medium" htmlFor="product-name">Product Name</label>
-          <Input
-            id="product-name"
-            value={form.name}
-            onChange={(e) => setForm((current) => ({ ...current, name: e.target.value }))}
-            className="h-11 rounded-xl"
-          />
-          <label className="block text-xs font-medium" htmlFor="product-description">Description</label>
-          <Textarea id="product-description" value={form.description} onChange={(e) => setForm((current) => ({ ...current, description: e.target.value }))} className="min-h-20 rounded-xl" />
-          <fieldset className="space-y-2 rounded-xl border border-border p-3">
-            <legend className="px-1 text-xs font-medium">Delivery option (choose at least one)</legend>
-            {([["quick", "Quick Delivery"], ["sunday_tuesday", "Sunday/Tuesday Delivery"]] as const).map(([value, label]) => (
-              <label key={value} className="flex items-center justify-between gap-3 text-sm">
-                <span>{label}</span>
-                <Switch
-                  checked={deliveryTypes.includes(value)}
-                  onCheckedChange={(on) =>
-                    setDeliveryTypes((cur) => (on ? Array.from(new Set([...cur, value])) : cur.filter((v) => v !== value)))
-                  }
-                />
-              </label>
-            ))}
-          </fieldset>
-          <label className="block text-xs font-medium">Category</label>
-          {(categories.data ?? []).length === 0 ? (
-            <div className="flex items-center justify-between gap-2 rounded-xl border border-dashed border-border px-3 py-2.5 text-sm text-muted-foreground">
-              <span>Add a category first</span>
-              <Button type="button" size="sm" variant="outline" className="rounded-full" onClick={() => document.getElementById("category-manager")?.scrollIntoView({ behavior: "smooth", block: "start" })}>
-                Add category
-              </Button>
-            </div>
-          ) : <>
-            <Select value={form.category_id} onValueChange={(category_id) => setForm((current) => ({ ...current, category_id, subcategory_id: "", brand_id: "" }))}>
-              <SelectTrigger className="h-11 rounded-xl" aria-label="Category"><SelectValue placeholder="Choose category" /></SelectTrigger>
-              <SelectContent>{(categories.data ?? []).map((category) => <SelectItem key={category.id} value={category.id}>{category.name}</SelectItem>)}</SelectContent>
-            </Select>
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="block text-xs font-medium">Subcategory <span className="text-muted-foreground">(optional)</span></label>
-                <Select
-                  value={form.subcategory_id || NONE}
-                  disabled={subcategoryOptions.length === 0}
-                  onValueChange={(value) => setForm((current) => ({ ...current, subcategory_id: value === NONE ? "" : value, brand_id: "" }))}
-                >
-                  <SelectTrigger className="h-11 rounded-xl" aria-label="Subcategory"><SelectValue placeholder={subcategoryOptions.length ? "None" : "No subcategories"} /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={NONE}>None</SelectItem>
-                    {subcategoryOptions.map((s) => <SelectItem key={s.id} value={s.id}>{s.name}{s.is_active ? "" : " (hidden)"}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <label className="block text-xs font-medium">Brand <span className="text-muted-foreground">(optional)</span></label>
-                <Select
-                  value={form.brand_id || NONE}
-                  disabled={brandOptions.length === 0}
-                  onValueChange={(value) => setForm((current) => ({ ...current, brand_id: value === NONE ? "" : value }))}
-                >
-                  <SelectTrigger className="h-11 rounded-xl" aria-label="Brand"><SelectValue placeholder={brandOptions.length ? "None" : "No brands"} /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={NONE}>None</SelectItem>
-                    {brandOptions.map((b) => <SelectItem key={b.id} value={b.id}>{b.name}{b.is_active ? "" : " (hidden)"}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-          </>}
-          <div className="grid grid-cols-2 gap-2">
-            <div><label className="block text-xs font-medium" htmlFor="product-price">Price</label><Input id="product-price" value={form.price} onChange={(e) => setForm((current) => ({ ...current, price: e.target.value }))} inputMode="decimal" className="h-11 rounded-xl" /></div>
-            <div><label className="block text-xs font-medium" htmlFor="product-stock">Stock Quantity</label><Input id="product-stock" value={form.stock} onChange={(e) => setForm((current) => ({ ...current, stock: e.target.value }))} inputMode="numeric" className="h-11 rounded-xl" /></div>
-          </div>
-          <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-input px-3 py-3 text-sm font-medium">
-            <Upload className="h-4 w-4" /> {photo?.name ?? (editing?.image_path || editing?.image_url ? "Replace product photo" : "Upload product photo")}
-            <input type="file" accept="image/*" className="sr-only" onChange={(event) => setPhoto(event.target.files?.[0] ?? null)} />
-          </label>
-          <div className="flex gap-2">
-            <Button
-              disabled={saving}
-              onClick={() => void saveProduct()}
-              className="h-11 flex-1 rounded-full bg-brand text-primary-foreground"
-            >
-              {saving ? "Saving…" : "Save product"}
-            </Button>
-            <Button variant="ghost" className="h-11 rounded-full" onClick={() => { setAdding(false); setEditing(null); setPhoto(null); }}>
-              Cancel
-            </Button>
-          </div>
-        </div>
-      ) : (
-        <Button
-          onClick={openAdd}
-          className="h-11 w-full rounded-full bg-brand text-primary-foreground"
+      <div className="grid grid-cols-2 gap-1.5 rounded-2xl border border-border/70 bg-card p-1.5 shadow-card">
+        <button
+          type="button"
+          onClick={() => setSection("products")}
+          className={cn(
+            "rounded-xl px-3 py-2 text-xs font-bold transition-colors",
+            section === "products"
+              ? "bg-brand text-primary-foreground shadow-xs"
+              : "text-muted-foreground hover:text-foreground",
+          )}
         >
-          <Plus className="mr-1.5 h-4 w-4" /> Add product
-        </Button>
-      )}
+          Products ({products.length})
+        </button>
+        <button
+          type="button"
+          onClick={() => setSection("categories")}
+          className={cn(
+            "rounded-xl px-3 py-2 text-xs font-bold transition-colors",
+            section === "categories"
+              ? "bg-brand text-primary-foreground shadow-xs"
+              : "text-muted-foreground hover:text-foreground",
+          )}
+        >
+          Categories ({categories.data?.length ?? 0})
+        </button>
+      </div>
 
-      {products.map((p) => (
-        <div
-          key={p.id}
-          className="rounded-3xl border border-border bg-card p-3 shadow-card"
-        >
-          <div className="flex items-center gap-3">
-            {p.image_path || p.image_url ? (
-              <CatalogImage source={p.image_path ? catalogReference(p.image_path) : p.image_url} alt={p.name} className="h-11 w-11 rounded-xl object-cover" />
-            ) : (
-              <span className="grid h-11 w-11 place-items-center rounded-xl bg-muted">🛍️</span>
-            )}
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-semibold">{p.name}</p>
-              <p className="text-xs text-muted-foreground">{rupees(p.price)}</p>
+      {section === "categories" ? (
+        <CatalogHierarchyManager products={products} />
+      ) : (
+        <>
+          {adding ? (
+            <div className="rounded-3xl border border-border bg-card p-3 shadow-card">
+              {renderProductEditor()}
             </div>
-            <Button type="button" variant="outline" size="sm" onClick={() => openEdit(p)} className="h-8 rounded-full px-3 text-xs">Edit</Button>
-            <Switch checked={p.in_stock} onCheckedChange={(v) => void onToggle(p.id, v)} />
+          ) : (
             <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              onClick={() => void remove(p.id)}
-              aria-label={`Delete ${p.name}`}
-              className="h-9 w-9 rounded-full text-destructive"
+              onClick={openAdd}
+              className="h-11 w-full rounded-full bg-brand text-primary-foreground"
             >
-              <Trash2 className="h-4 w-4" />
+              <Plus className="mr-1.5 h-4 w-4" /> Add product
             </Button>
-          </div>
-          <div className="mt-2 flex items-center gap-2">
-            <span className="text-xs text-muted-foreground">{p.stock_quantity} in stock</span>
-            {(p.stock_quantity ?? 0) < 5 && (
-              <span className="ml-auto rounded-full bg-warning/20 px-2 py-1 text-[11px] font-bold text-warning-foreground">
-                Low stock
-              </span>
-            )}
-          </div>
-        </div>
-      ))}
+          )}
+
+          {products.map((p) => {
+            const isEditingThis = editing?.id === p.id;
+            return (
+              <div
+                key={p.id}
+                className={cn(
+                  "rounded-3xl border bg-card p-3 shadow-card transition-colors",
+                  isEditingThis ? "border-primary/50" : "border-border",
+                )}
+              >
+                <div className="flex items-center gap-3">
+                  {p.image_path || p.image_url ? (
+                    <CatalogImage source={p.image_path ? catalogReference(p.image_path) : p.image_url} alt={p.name} className="h-11 w-11 rounded-xl object-cover" />
+                  ) : (
+                    <span className="grid h-11 w-11 place-items-center rounded-xl bg-muted">🛍️</span>
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold">{p.name}</p>
+                    <p className="text-xs text-muted-foreground">{rupees(p.price)}</p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant={isEditingThis ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => toggleInlineEdit(p)}
+                    className={cn("h-8 rounded-full px-3 text-xs", isEditingThis && "bg-brand text-primary-foreground")}
+                  >
+                    {isEditingThis ? "Close" : "Edit"}
+                  </Button>
+                  <Switch checked={p.in_stock} onCheckedChange={(v) => void onToggle(p.id, v)} />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => void remove(p.id)}
+                    aria-label={`Delete ${p.name}`}
+                    className="h-9 w-9 rounded-full text-destructive"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+                <div className="mt-2 flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground">{p.stock_quantity} in stock</span>
+                  {(p.stock_quantity ?? 0) < 5 && (
+                    <span className="ml-auto rounded-full bg-warning/20 px-2 py-1 text-[11px] font-bold text-warning-foreground">
+                      Low stock
+                    </span>
+                  )}
+                </div>
+
+                {isEditingThis && <div className="mt-3 border-t border-border/70 pt-3">{renderProductEditor()}</div>}
+              </div>
+            );
+          })}
+        </>
+      )}
     </div>
   );
 }

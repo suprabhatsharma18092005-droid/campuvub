@@ -1,4 +1,4 @@
-import campuLogo from "@/assets/campu-logo.png";
+import { CampuLogo } from "@/components/CampuLogo";
 
 /** iOS/Android-style glassmorphism heads-up banner used for foreground push. */
 export function PushBanner({
@@ -16,11 +16,7 @@ export function PushBanner({
       onClick={onClick}
       className="animate-push-banner pointer-events-auto flex w-[min(92vw,26rem)] items-center gap-3 rounded-2xl border border-white/40 bg-white/30 p-4 text-left text-gray-900 shadow-2xl backdrop-blur-xl"
     >
-      <img
-        src={campuLogo}
-        alt=""
-        className="h-10 w-10 shrink-0 rounded-xl object-contain"
-      />
+      <CampuLogo className="h-10 w-10 rounded-xl" />
       <span className="min-w-0 flex-1">
         <span className="block truncate text-[15px] font-bold leading-tight">{title}</span>
         {body ? (

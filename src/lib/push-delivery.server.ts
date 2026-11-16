@@ -55,3 +55,16 @@ export async function sendStatusAlert(order: { id: string; student_id: string; s
     path: `/orders/${order.id}`,
   });
 }
+
+export async function sendVipRequestAlert(req: {
+  id: string;
+  customerName: string;
+  utrNumber: string;
+  amount: number;
+}) {
+  return safelySendPush(adminTokens, {
+    title: `👑 New VIP Pass Request! (₹${Number(req.amount).toFixed(0)})`,
+    body: `${req.customerName} submitted UTR ${req.utrNumber} for Campu VIP. Tap to approve.`,
+    path: '/admin?tab=vip',
+  });
+}

@@ -19,8 +19,16 @@ test('alerts are only allowed for orders and broadcasts created in the last 10 m
 
 test('only known event types with valid ids are accepted', () => {
   expect(pushEventSchema.safeParse({ type: 'new_order', orderId: ORDER }).success).toBe(true);
+  expect(pushEventSchema.safeParse({ type: 'vip_request', vipId: ORDER }).success).toBe(true);
   expect(pushEventSchema.safeParse({ type: 'new_order', orderId: 'x' }).success).toBe(false);
   expect(pushEventSchema.safeParse({ type: 'custom', title: 'Hi' }).success).toBe(false);
+});
+
+test('vip-request alerts are refused for someone else or old requests', async () => {
+  const other = { id: ORDER, user_id: OTHER, utr_number: '123456789012', amount: 149, created_at: new Date().toISOString() };
+  await expect(runPushEvent({ type: 'vip_request', vipId: ORDER }, ctx({ row: other }))).rejects.toBeInstanceOf(PushForbiddenError);
+  const old = { id: ORDER, user_id: ME, utr_number: '123456789012', amount: 149, created_at: new Date(Date.now() - EVENT_WINDOW_MS - 60_000).toISOString() };
+  await expect(runPushEvent({ type: 'vip_request', vipId: ORDER }, ctx({ row: old }))).rejects.toBeInstanceOf(PushForbiddenError);
 });
 
 test('new-order alerts are refused for someone else\u2019s order', async () => {

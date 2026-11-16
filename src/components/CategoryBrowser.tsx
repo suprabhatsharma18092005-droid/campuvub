@@ -2,7 +2,9 @@ import { ChevronRight } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 
 import { CategoryThumb } from "@/components/CategoryThumb";
-import { brandsQuery, categoriesQuery, subcategoriesQuery } from "@/lib/queries";
+import { CATEGORY_MODES_KEY, isCategoryInMode, parseCategoryModes } from "@/lib/category-modes";
+import { useDeliveryMode } from "@/lib/delivery";
+import { brandsQuery, categoriesQuery, settingsQuery, subcategoriesQuery } from "@/lib/queries";
 import { chooseBrand, chooseCategory, chooseSubcategory, type CatalogSelection } from "@/lib/catalog-hierarchy";
 import { cn } from "@/lib/utils";
 
@@ -16,7 +18,12 @@ export function CategoryBrowser({
   selection: CatalogSelection;
   onChange: (next: CatalogSelection) => void;
 }) {
-  const categories = useQuery(categoriesQuery).data ?? [];
+  const mode = useDeliveryMode();
+  const settings = useQuery(settingsQuery);
+  const categoryModes = parseCategoryModes(settings.data?.[CATEGORY_MODES_KEY]);
+  const categories = (useQuery(categoriesQuery).data ?? []).filter((c) =>
+    isCategoryInMode(c.id, mode, categoryModes),
+  );
   const subcategories = (useQuery(subcategoriesQuery).data ?? []).filter(
     (s) => s.is_active && s.category_id === selection.category,
   );
@@ -56,7 +63,7 @@ export function CategoryBrowser({
             )}
           </p>
           <div data-horizontal-scroll className={cn(ROW, "mt-2 gap-2.5")}>
-            <Tile small label="All" all active={!selection.subcategory} onClick={() => onChange(chooseSubcategory(selection, undefined))} />
+            <Tile small label="All Items" all active={!selection.subcategory} onClick={() => onChange(chooseSubcategory(selection, undefined))} />
             {subcategories.map((s) => (
               <Tile
                 key={s.id}

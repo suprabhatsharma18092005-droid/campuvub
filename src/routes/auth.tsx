@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { z } from "zod";
 
-import campuLogo from "@/assets/campu-logo.png";
+import { CampuLogo } from "@/components/CampuLogo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -93,7 +93,7 @@ function AuthPage() {
     <div className="flex min-h-screen flex-col items-center justify-center bg-brand-soft px-4 py-10">
       <div className="w-full max-w-sm rounded-3xl border border-border bg-card p-6 shadow-card">
         <div className="flex flex-col items-center text-center">
-          <img src={campuLogo} alt="Campu" className="h-16 w-16 rounded-2xl object-contain" />
+          <CampuLogo className="h-16 w-16 rounded-2xl shadow-float" />
           <h1 className="mt-3 font-display text-2xl font-extrabold text-brand">Campu</h1>
           <p className="text-xs uppercase tracking-widest text-muted-foreground">
             Your campus, one tap away

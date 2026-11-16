@@ -3,7 +3,7 @@ export const SCHEDULED_MIN_ORDER = 99;
 export const SCHEDULED_ORIGINAL_FEE = 25;
 export const VIP_PRICE = 149;
 export const VIP_QUICK_FREE_PER_DAY = 2;
-export const VIP_QUICK_MIN_ORDER = 99;
+export const VIP_QUICK_MIN_ORDER = 0;
 
 export type ScheduledFee = {
   /** False below the ₹99 minimum — the order must not be placed. */
@@ -40,8 +40,8 @@ export function scheduledDeliveryFee(subtotal: number, vip = false): ScheduledFe
   };
 }
 
-/** Quick delivery: VIPs get free delivery on ₹99+ orders, up to 2 per day; otherwise the normal fee. */
-export function quickDeliveryFee(normalFee: number, subtotal: number, vip: boolean, freeUsedToday: number): number {
-  if (vip && subtotal >= VIP_QUICK_MIN_ORDER && freeUsedToday < VIP_QUICK_FREE_PER_DAY) return 0;
+/** Quick delivery: VIPs get free delivery on up to 2 orders per day with no minimum order value; otherwise the normal fee. */
+export function quickDeliveryFee(normalFee: number, _subtotal: number, vip: boolean, freeUsedToday: number): number {
+  if (vip && freeUsedToday < VIP_QUICK_FREE_PER_DAY) return 0;
   return normalFee;
 }

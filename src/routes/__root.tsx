@@ -1,3 +1,4 @@
+import { useQuery } from "@tanstack/react-query";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   type ErrorComponentProps,
@@ -8,13 +9,21 @@ import {
   HeadContent,
   Scripts,
 } from "@tanstack/react-router";
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 import { Toaster } from "@/components/ui/sonner";
 import { CartProvider } from "@/lib/cart";
+import { settingsQuery } from "@/lib/queries";
 import { SessionProvider } from "@/lib/session";
+import {
+  DEFAULT_THEME_ID,
+  THEME_SETTING_KEY,
+  THEME_STORAGE_KEY,
+  applyAppTheme,
+  getUserThemeOverride,
+} from "@/lib/themes";
 import { supabase } from "@/integrations/supabase/client";
 
 function NotFoundComponent() {
@@ -39,12 +48,40 @@ function NotFoundComponent() {
   );
 }
 
+const CHUNK_RELOAD_KEY = "campu_chunk_reload_at";
+
+function isDynamicImportError(error: unknown): boolean {
+  const msg = error instanceof Error ? error.message : String(error ?? "");
+  return /Failed to fetch dynamically imported module|Importing a module script failed|error loading dynamically imported module|Loading chunk|ChunkLoadError/i.test(
+    msg,
+  );
+}
+
+function tryOneShotReload(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    const now = Date.now();
+    const last = Number(window.sessionStorage.getItem(CHUNK_RELOAD_KEY) ?? "0");
+    if (Number.isFinite(last) && now - last < 10_000) return false;
+    window.sessionStorage.setItem(CHUNK_RELOAD_KEY, String(now));
+  } catch {
+    // Ignore storage access failures and still attempt a reload
+  }
+  window.location.reload();
+  return true;
+}
+
 function ErrorComponent({ error, reset }: ErrorComponentProps) {
   console.error(error);
   const router = useRouter();
+  const isChunkError = isDynamicImportError(error);
+
   useEffect(() => {
+    if (isChunkError && tryOneShotReload()) {
+      return;
+    }
     reportLovableError(error, { boundary: "tanstack_root_error_component" });
-  }, [error]);
+  }, [error, isChunkError]);
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
@@ -53,11 +90,17 @@ function ErrorComponent({ error, reset }: ErrorComponentProps) {
           This page didn't load
         </h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          Something went wrong on our end. You can try refreshing or head back home.
+          {isChunkError
+            ? "The app updated in the background. Reload to load the latest page."
+            : "Something went wrong on our end. You can try refreshing or head back home."}
         </p>
         <div className="mt-6 flex flex-wrap justify-center gap-2">
           <button
             onClick={() => {
+              if (isChunkError) {
+                window.location.reload();
+                return;
+              }
               router.invalidate();
               reset();
             }}
@@ -94,7 +137,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
-      { name: "theme-color", content: "#e11d48" },
+      { name: "theme-color", content: "#067D35" },
       { name: "apple-mobile-web-app-capable", content: "yes" },
 
     ],
@@ -106,9 +149,9 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
         rel: "stylesheet",
         href: "https://fonts.googleapis.com/css2?family=Outfit:wght@500;600;700;800&family=DM+Sans:wght@400;500;600;700&display=swap",
       },
-      { rel: "icon", type: "image/png", href: "/favicon.png" },
-      { rel: "manifest", href: "/manifest.json" },
-      { rel: "apple-touch-icon", href: "/icon-192x192.png" },
+      { rel: "icon", type: "image/png", href: "/api/public/pwa-icon?size=192&purpose=any" },
+      { rel: "manifest", href: "/api/public/manifest" },
+      { rel: "apple-touch-icon", href: "/api/public/pwa-icon?size=192&purpose=any" },
 
     ],
   }),
@@ -137,6 +180,15 @@ function RootComponent() {
   const router = useRouter();
 
   useEffect(() => {
+    const onPreloadError = (event: Event) => {
+      event.preventDefault();
+      tryOneShotReload();
+    };
+    window.addEventListener("vite:preloadError", onPreloadError);
+    return () => window.removeEventListener("vite:preloadError", onPreloadError);
+  }, []);
+
+  useEffect(() => {
     const { data } = supabase.auth.onAuthStateChange((event) => {
       if (event !== "SIGNED_IN" && event !== "SIGNED_OUT" && event !== "USER_UPDATED") return;
       void router.invalidate();
@@ -147,6 +199,7 @@ function RootComponent() {
 
   return (
     <QueryClientProvider client={queryClient}>
+      <ThemeSync />
       <SessionProvider>
         <CartProvider>
           {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
@@ -156,4 +209,35 @@ function RootComponent() {
       </SessionProvider>
     </QueryClientProvider>
   );
+}
+
+function ThemeSync() {
+  const settings = useQuery(settingsQuery);
+  const configured = settings.data?.[THEME_SETTING_KEY];
+  const [userOverride, setUserOverride] = useState<string | null>(() => getUserThemeOverride());
+
+  useEffect(() => {
+    const syncOverride = () => setUserOverride(getUserThemeOverride());
+    syncOverride();
+    window.addEventListener("campu-theme-change", syncOverride);
+    window.addEventListener("storage", syncOverride);
+    return () => {
+      window.removeEventListener("campu-theme-change", syncOverride);
+      window.removeEventListener("storage", syncOverride);
+    };
+  }, []);
+
+  useEffect(() => {
+    let target = userOverride ?? configured;
+    if (!target && typeof window !== "undefined") {
+      try {
+        target = window.localStorage.getItem(THEME_STORAGE_KEY) ?? DEFAULT_THEME_ID;
+      } catch {
+        target = DEFAULT_THEME_ID;
+      }
+    }
+    applyAppTheme(target ?? DEFAULT_THEME_ID);
+  }, [configured, userOverride]);
+
+  return null;
 }

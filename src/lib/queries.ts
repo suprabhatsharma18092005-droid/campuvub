@@ -3,6 +3,10 @@ import { keepPreviousData, queryOptions } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import type { Product } from "@/components/ProductCard";
 import { catalogReference } from "@/lib/catalog-media";
+import {
+  PUBLIC_SUBCATEGORIES_SNAPSHOT_KEY,
+  parseSubcategoriesSnapshot,
+} from "@/lib/popular-order";
 
 export const productsQuery = queryOptions({
   queryKey: ["products"],
@@ -57,7 +61,17 @@ export const subcategoriesQuery = queryOptions({
       .select("id, category_id, name, image_url, sort_order, is_active")
       .order("sort_order")
       .order("name");
-    if (error) throw error;
+    if (error) {
+      if (error.code === "42501") {
+        const snap = await supabase
+          .from("app_settings")
+          .select("value")
+          .eq("key", PUBLIC_SUBCATEGORIES_SNAPSHOT_KEY)
+          .maybeSingle();
+        return parseSubcategoriesSnapshot(snap.data?.value);
+      }
+      throw error;
+    }
     return data ?? [];
   },
 });
@@ -82,7 +96,10 @@ export const brandsQuery = queryOptions({
       .select("id, subcategory_id, category_id, name, image_url, sort_order, is_active")
       .order("sort_order")
       .order("name");
-    if (error) throw error;
+    if (error) {
+      if (error.code === "42501") return [];
+      throw error;
+    }
     return data ?? [];
   },
 });

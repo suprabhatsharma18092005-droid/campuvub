@@ -46,14 +46,118 @@ const orderInputSchema = z.object({
   delivery_date: z.string().nullable(),
 });
 
-/** Insert under the existing database rules; finish the admin alert before returning. */
+function hasLiveAdminDb() {
+  return Boolean(process.env['SUPABASE_URL'] && process.env['SUPABASE_SERVICE_ROLE_KEY']);
+}
+
+type OrderCartItem = { id: string; name: string; qty: number };
+
+async function adjustStock(
+  items: OrderCartItem[],
+  direction: 'deduct' | 'restore',
+): Promise<Array<{ id: string; previousQty: number; previousInStock: boolean }>> {
+  if (!hasLiveAdminDb() || items.length === 0) return [];
+  const { supabaseAdmin } = await import('@/integrations/supabase/client.server');
+
+  const aggregated = new Map<string, { name: string; qty: number }>();
+  for (const item of items) {
+    const prev = aggregated.get(item.id);
+    aggregated.set(item.id, { name: item.name, qty: (prev?.qty ?? 0) + item.qty });
+  }
+
+  const applied: Array<{ id: string; previousQty: number; previousInStock: boolean }> = [];
+  const ids = Array.from(aggregated.keys());
+  const { data: rows, error } = await supabaseAdmin
+    .from('products')
+    .select('id, name, stock_quantity, in_stock')
+    .in('id', ids);
+  if (error) throw new Error('Could not verify product inventory.');
+
+  const rowMap = new Map((rows ?? []).map((r) => [r.id, r]));
+
+  for (const [id, item] of aggregated.entries()) {
+    const prod = rowMap.get(id);
+    if (!prod) throw new Error(`${item.name} is no longer available.`);
+    if (direction === 'deduct') {
+      if (!prod.in_stock || prod.stock_quantity <= 0) {
+        throw new Error(`${item.name} is out of stock.`);
+      }
+      if (prod.stock_quantity < item.qty) {
+        throw new Error(`Only ${prod.stock_quantity} left for ${item.name}.`);
+      }
+      const nextQty = prod.stock_quantity - item.qty;
+      const { data: updated, error: updErr } = await supabaseAdmin
+        .from('products')
+        .update({ stock_quantity: nextQty, in_stock: nextQty > 0 })
+        .eq('id', id)
+        .eq('stock_quantity', prod.stock_quantity)
+        .gte('stock_quantity', item.qty)
+        .select('id');
+      if (updErr || !updated || updated.length === 0) {
+        // Roll back any earlier decrements from this same order.
+        for (const prev of applied) {
+          await supabaseAdmin
+            .from('products')
+            .update({ stock_quantity: prev.previousQty, in_stock: prev.previousInStock })
+            .eq('id', prev.id);
+        }
+        throw new Error(`${item.name} just sold out. Refresh your cart and try again.`);
+      }
+      applied.push({ id, previousQty: prod.stock_quantity, previousInStock: prod.in_stock });
+    } else {
+      const nextQty = prod.stock_quantity + item.qty;
+      await supabaseAdmin
+        .from('products')
+        .update({ stock_quantity: nextQty, in_stock: nextQty > 0 })
+        .eq('id', id);
+    }
+  }
+  return applied;
+}
+
+/** Insert under the existing database rules; finish stock reservation & admin alert before returning. */
 export const placeOrderWithPush = createServerFn({ method: 'POST' })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: z.input<typeof orderInputSchema>) => orderInputSchema.parse(input))
   .handler(async ({ data, context }) => {
-    const { data: order, error } = await context.supabase.from('orders')
-      .insert({ ...data, student_id: context.userId }).select('id').single();
-    if (error || !order) throw new Error(error?.message ?? 'Could not place order');
+    // Also validate live stock via caller Supabase client even if admin key isn't set.
+    const { data: stockRows } = await context.supabase
+      .from('products')
+      .select('id, name, stock_quantity, in_stock')
+      .in('id', data.cart_items.map((i) => i.id));
+    if (stockRows) {
+      const map = new Map(stockRows.map((r) => [r.id, r]));
+      for (const item of data.cart_items) {
+        const prod = map.get(item.id);
+        if (!prod || !prod.in_stock || prod.stock_quantity <= 0) {
+          throw new Error(`${item.name} is out of stock.`);
+        }
+        if (prod.stock_quantity < item.qty) {
+          throw new Error(`Only ${prod.stock_quantity} left for ${item.name}.`);
+        }
+      }
+    }
+
+    const reserved = await adjustStock(data.cart_items, 'deduct');
+    const { data: order, error } = await context.supabase
+      .from('orders')
+      .insert({ ...data, student_id: context.userId })
+      .select('id')
+      .single();
+
+    if (error || !order) {
+      if (reserved.length > 0 && hasLiveAdminDb()) {
+        const { supabaseAdmin } = await import('@/integrations/supabase/client.server');
+        for (const prev of reserved) {
+          await supabaseAdmin
+            .from('products')
+            .update({ stock_quantity: prev.previousQty, in_stock: prev.previousInStock })
+            .eq('id', prev.id);
+        }
+      }
+      throw new Error(error?.message ?? 'Could not place order');
+    }
+
     await dispatch({ type: 'new_order', orderId: order.id }, context);
     return { id: order.id };
   });
@@ -77,8 +181,38 @@ export const updateOrderWithPush = createServerFn({ method: 'POST' })
       const { error } = await context.supabase.rpc('deliver_order_with_otp', { _order_id: data.orderId, _delivery_otp: data.otp });
       if (error) throw error;
     } else {
-      const { error } = await context.supabase.from('orders').update({ status: data.status }).eq('id', data.orderId);
+      const { data: prevOrder } = await context.supabase
+        .from('orders')
+        .select('status, cart_items, payment_method, accepted_at, refund_status')
+        .eq('id', data.orderId)
+        .maybeSingle();
+
+      const wasAcceptedUpi =
+        prevOrder?.payment_method === 'UPI' && Boolean(prevOrder?.accepted_at);
+
+      const patch: Database['public']['Tables']['orders']['Update'] = { status: data.status };
+      if (data.status === 'accepted' && !prevOrder?.accepted_at) {
+        patch.accepted_at = new Date().toISOString();
+      } else if (data.status === 'cancelled') {
+        patch.cancelled_at = new Date().toISOString();
+        patch.refund_status = wasAcceptedUpi
+          ? prevOrder?.refund_status === 'refunded'
+            ? 'refunded'
+            : 'pending'
+          : 'none';
+      }
+
+      const { error } = await context.supabase.from('orders').update(patch).eq('id', data.orderId);
       if (error) throw error;
+      if (
+        data.status === 'cancelled' &&
+        prevOrder &&
+        prevOrder.status !== 'cancelled' &&
+        prevOrder.status !== 'delivered' &&
+        Array.isArray(prevOrder.cart_items)
+      ) {
+        await adjustStock(prevOrder.cart_items as OrderCartItem[], 'restore').catch(() => undefined);
+      }
     }
     await dispatch({ type: 'order_status', orderId: data.orderId }, context);
     return { ok: true };
@@ -88,7 +222,11 @@ export const cancelOrderWithPush = createServerFn({ method: 'POST' })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: { orderId: string }) => orderIdSchema.parse(input))
   .handler(async ({ data, context }) => {
-    const { data: order, error: readError } = await context.supabase.from('orders').select('payment_method,student_id').eq('id', data.orderId).single();
+    const { data: order, error: readError } = await context.supabase
+      .from('orders')
+      .select('payment_method,student_id,status,cart_items')
+      .eq('id', data.orderId)
+      .single();
     if (readError || !order || order.student_id !== context.userId) throw new Error('Forbidden');
     // Existing cancellation-window trigger/RLS remain the enforcement boundary.
     const { error } = await context.supabase.from('orders').update({
@@ -96,6 +234,9 @@ export const cancelOrderWithPush = createServerFn({ method: 'POST' })
       refund_status: order.payment_method === 'UPI' ? 'pending' : 'none',
     }).eq('id', data.orderId).select('id').single();
     if (error) throw error;
+    if (order.status !== 'cancelled' && order.status !== 'delivered' && Array.isArray(order.cart_items)) {
+      await adjustStock(order.cart_items as OrderCartItem[], 'restore').catch(() => undefined);
+    }
     await dispatch({ type: 'order_status', orderId: data.orderId }, context);
     return { ok: true };
   });
@@ -119,6 +260,11 @@ export const notifyBroadcast = createServerFn({ method: 'POST' })
     if (error || !row) throw new Error(error?.message ?? 'Could not save broadcast');
     return dispatch({ type: 'broadcast', broadcastId: row.id }, context);
   });
+
+export const notifyVipRequest = createServerFn({ method: 'POST' })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: { vipId: string }) => z.object({ vipId: z.string().uuid() }).parse(input))
+  .handler(async ({ data, context }) => dispatch({ type: 'vip_request', vipId: data.vipId }, context));
 
 export const pushHealthCheck = createServerFn({ method: 'POST' })
   .middleware([requireSupabaseAuth])

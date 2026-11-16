@@ -10,7 +10,7 @@ import { formatDeliveryDate, sundayTuesdayDeliveryDate, useDeliveryMode } from "
 import { MODE_LABEL, deliveryInfoText } from "@/lib/delivery";
 import { useEnforceCartMode } from "@/lib/cart";
 import { deliveryFee, rupees } from "@/lib/format";
-import { SCHEDULED_MIN_ORDER, SCHEDULED_ORIGINAL_FEE, scheduledDeliveryFee } from "@/lib/scheduled-fee";
+import { SCHEDULED_MIN_ORDER, SCHEDULED_ORIGINAL_FEE, VIP_QUICK_FREE_PER_DAY, quickDeliveryFee, scheduledDeliveryFee } from "@/lib/scheduled-fee";
 import { useVip } from "@/lib/vip";
 import { VipCartHint } from "@/components/VipBanner";
 
@@ -61,7 +61,7 @@ function CartPage() {
               {items.map((i) => (
                 <li
                   key={i.id}
-                  className="flex items-center gap-3 rounded-2xl border border-border bg-card p-3 shadow-card"
+                  className="royal-card flex items-center gap-3 rounded-2xl border border-border bg-card p-3 shadow-card"
                 >
                   <div className="grid h-14 w-14 shrink-0 place-items-center overflow-hidden rounded-xl bg-brand-soft">
                     {i.image_url ? (
@@ -90,7 +90,7 @@ function CartPage() {
               ))}
             </ul>
 
-            <div className="mt-5 rounded-2xl border border-border bg-card p-4 shadow-card">
+            <div className="royal-card mt-5 rounded-2xl border border-border bg-card p-4 shadow-card">
               <div className="flex justify-between text-sm">
                 <span className="text-muted-foreground">Item total</span>
                 <span className="font-semibold">{rupees(subtotal)}</span>
@@ -128,9 +128,21 @@ function CartPage() {
                     </p>
                   )}
                 </>
+              ) : quickDeliveryFee(deliveryFee(settings.data, "UPI"), subtotal, vip.isVip, vip.freeUsedToday) === 0 ? (
+                <div className="mt-1 flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">Delivery fee · VIP 👑</span>
+                  <span className="font-semibold text-success">
+                    <s className="mr-1.5 font-normal text-muted-foreground">
+                      {rupees(deliveryFee(settings.data, "UPI"))}
+                    </s>
+                    FREE (No min order!)
+                  </span>
+                </div>
               ) : (
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Delivery fee is added at checkout — {rupees(deliveryFee(settings.data, "UPI"))} with UPI{settings.data?.["night_mode_enabled"] === "true" ? " (night mode; cash unavailable)." : `, ${rupees(deliveryFee(settings.data, "COD"))} with cash.`}
+                  {vip.isVip && vip.freeUsedToday >= VIP_QUICK_FREE_PER_DAY
+                    ? `Daily ${VIP_QUICK_FREE_PER_DAY} free VIP quick deliveries used — standard fee applies (${rupees(deliveryFee(settings.data, "UPI"))} UPI).`
+                    : `Delivery fee is added at checkout — ${rupees(deliveryFee(settings.data, "UPI"))} with UPI${settings.data?.["night_mode_enabled"] === "true" ? " (night mode; cash unavailable)." : `, ${rupees(deliveryFee(settings.data, "COD"))} with cash.`}`}
                 </p>
               )}
               <VipCartHint vip={vip} mode={mode} subtotal={subtotal} />

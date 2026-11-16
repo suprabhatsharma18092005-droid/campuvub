@@ -31,23 +31,45 @@ function createSupabaseFetch(supabaseKey: string): typeof fetch {
   };
 }
 
+import type { JwtPayload } from '@supabase/supabase-js'
+import { createMockSupabaseClient, parseMockBearerToken } from './mock'
+
 export const requireSupabaseAuth = createMiddleware({ type: 'function' }).server(
   async ({ next }) => {
     
     const SUPABASE_URL = process.env['SUPABASE_URL'];
     const SUPABASE_PUBLISHABLE_KEY = process.env['SUPABASE_PUBLISHABLE_KEY'];
 
-    if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
-      const missing = [
-        ...(!SUPABASE_URL ? ['SUPABASE_URL'] : []),
-        ...(!SUPABASE_PUBLISHABLE_KEY ? ['SUPABASE_PUBLISHABLE_KEY'] : []),
-      ];
-      const message = `Missing Supabase environment variable(s): ${missing.join(', ')}. Connect Supabase in Lovable Cloud.`;
-      console.error(`[Supabase] ${message}`);
-      throw new Error(message);
-    }
-    
     const request = getRequest();
+
+    if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
+      const authHeader = request?.headers?.get('authorization');
+      const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : '';
+      const parsed = token ? parseMockBearerToken(token) : null;
+      if (!parsed) {
+        throw new Error('Unauthorized: Invalid or missing token');
+      }
+      const now = Math.floor(Date.now() / 1000);
+      const claims: JwtPayload = {
+        iss: 'mock',
+        sub: parsed.sub,
+        aud: 'authenticated',
+        exp: now + 3600,
+        iat: now,
+        role: 'authenticated',
+        aal: 'aal1',
+        amr: [],
+        session_id: 'mock',
+        ...(parsed.email ? { email: parsed.email } : {}),
+      };
+      return next({
+        context: {
+          supabase: createMockSupabaseClient(parsed.sub),
+          userId: parsed.sub,
+          claims,
+        },
+      });
+    }
 
     if (!request?.headers) {
       throw new Error('Unauthorized: No request headers available');

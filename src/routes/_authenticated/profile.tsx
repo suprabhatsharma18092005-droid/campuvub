@@ -1,19 +1,52 @@
 import { Link } from "@tanstack/react-router";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, useNavigate, useSearch } from "@tanstack/react-router";
-import { Bell, LogOut, ShieldCheck } from "lucide-react";
+import {
+  Bell,
+  ChevronDown,
+  ChevronRight,
+  Crown,
+  FileText,
+  LogOut,
+  MapPin,
+  Palette,
+  ReceiptText,
+  ShieldCheck,
+  Sparkles,
+} from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { z } from "zod";
 
 import { AppShell } from "@/components/AppShell";
+import { ThemePicker } from "@/components/ThemePicker";
+import { formatVipDate } from "@/components/VipBanner";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { supabase } from "@/integrations/supabase/client";
 import { enablePush, pushDeviceId } from "@/lib/push";
 import { savePushDevice } from "@/lib/push-device";
+import { settingsQuery } from "@/lib/queries";
 import { useProfile, useRoles, useSession } from "@/lib/session";
+import {
+  DEFAULT_THEME_ID,
+  THEME_SETTING_KEY,
+  applyAppTheme,
+  getAppTheme,
+  getUserThemeOverride,
+  setUserThemeOverride,
+  type AppThemeId,
+} from "@/lib/themes";
+import { cn } from "@/lib/utils";
+import { ADMIN_EMAIL, useVip } from "@/lib/vip";
 
 const profileSchema = z.object({
   full_name: z.string().trim().min(2, "Please enter your name").max(80),
@@ -58,6 +91,18 @@ function ProfilePage() {
   const [busy, setBusy] = useState(false);
   const [pushBusy, setPushBusy] = useState(false);
   const [pushOn, setPushOn] = useState(false);
+  const [termsOpen, setTermsOpen] = useState(false);
+  const [addressOpen, setAddressOpen] = useState(() => next === "checkout");
+  const [themeOpen, setThemeOpen] = useState(false);
+  const settings = useQuery(settingsQuery);
+  const [userTheme, setUserTheme] = useState<AppThemeId | null>(() => getUserThemeOverride());
+  const storeDefaultTheme = (settings.data?.[THEME_SETTING_KEY] as AppThemeId | undefined) ?? DEFAULT_THEME_ID;
+  const activeThemeId = userTheme ?? storeDefaultTheme;
+  const activeTheme = getAppTheme(activeThemeId);
+
+  useEffect(() => {
+    if (next === "checkout") setAddressOpen(true);
+  }, [next]);
 
   useEffect(() => {
     if (typeof window !== "undefined" && "Notification" in window) {
@@ -97,6 +142,7 @@ function ProfilePage() {
     }
     await queryClient.invalidateQueries({ queryKey: ["profile"] });
     toast.success("Delivery details saved");
+    setAddressOpen(false);
     if (next === "checkout") void navigate({ to: "/checkout" });
   }
 
@@ -130,67 +176,152 @@ function ProfilePage() {
     }
   }
 
-  const isAdmin = roles?.includes("admin") || roles?.includes("vendor");
+  const vip = useVip();
+  const isAdmin = Boolean(
+    roles?.includes("admin") ||
+      roles?.includes("vendor") ||
+      session?.user.email?.toLowerCase() === ADMIN_EMAIL,
+  );
+  const isRoyalProfile = isAdmin || vip.isVip;
 
   return (
     <AppShell>
       <div className="px-4 pt-5">
-        <h1 className="font-display text-2xl font-bold">Your profile</h1>
-        <p className="text-sm text-muted-foreground">{session?.user.email}</p>
-        <Link to="/vip" className="mt-4 flex items-center justify-between rounded-2xl border border-primary/40 bg-accent p-3 text-sm font-semibold text-primary">
-          <span>👑 Campu VIP membership</span><span>→</span>
-        </Link>
-
-        {next === "checkout" && (
-          <div className="mt-4 rounded-2xl border border-warning/40 bg-warning/15 p-3 text-sm">
-            Please complete your phone number, hostel block and room number before placing your
-            first order.
+        {isRoyalProfile ? (
+          <div className="relative overflow-hidden rounded-3xl border border-primary/50 bg-royal p-4 text-white shadow-float">
+            <div className="animate-gold-shimmer pointer-events-none absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-primary/30 via-white/80 to-primary/30" />
+            <div className="flex items-center gap-3.5">
+              <div className="relative grid h-14 w-14 shrink-0 place-items-center rounded-2xl border border-white/25 bg-brand text-primary-foreground shadow-card">
+                <Crown className="animate-crown-float h-7 w-7" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="inline-flex items-center gap-1 rounded-full border border-white/20 bg-white/10 px-2.5 py-0.5 text-[11px] font-bold text-white/95">
+                  <Sparkles className="h-3 w-3 text-white/90" />
+                  {isAdmin ? "Admin / Store Owner 👑" : "Campu Royal Member"}
+                </div>
+                <h1 className="mt-1 truncate font-display text-xl font-extrabold text-white">
+                  {profile?.full_name || (isAdmin ? "Campu Master Admin" : "Your profile")}
+                </h1>
+                <p className="truncate text-xs text-white/80">
+                  {session?.user.email}
+                  {vip.isVip && vip.expiresAt ? ` · VIP till ${formatVipDate(vip.expiresAt)}` : ""}
+                </p>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <>
+            <h1 className="font-display text-2xl font-bold">Your profile</h1>
+            <p className="text-sm text-muted-foreground">{session?.user.email}</p>
+          </>
+        )}
+        {isAdmin && (
+          <div className="mt-4 grid grid-cols-2 gap-2.5">
+            <Button
+              type="button"
+              variant="default"
+              className="h-11 rounded-2xl bg-brand font-bold text-primary-foreground shadow-card"
+              onClick={() => navigate({ to: "/admin" })}
+            >
+              <ShieldCheck className="mr-1.5 h-4 w-4" />
+              Admin Panel
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="h-11 rounded-2xl border-primary/35 font-bold text-primary"
+              onClick={() => navigate({ to: "/orders" })}
+            >
+              <ReceiptText className="mr-1.5 h-4 w-4" />
+              My Orders
+            </Button>
           </div>
         )}
 
-        <form onSubmit={save} className="mt-5 space-y-4">
-          <Field
-            id="full_name"
-            label="Full name"
-            value={form.full_name}
-            error={errors["full_name"]}
-            onChange={(v) => setForm({ ...form, full_name: v })}
-          />
-          <Field
-            id="phone_number"
-            label="Phone number"
-            value={form.phone_number}
-            error={errors["phone_number"]}
-            placeholder="10-digit mobile number"
-            onChange={(v) => setForm({ ...form, phone_number: v.replace(/\D/g, "").slice(0, 10) })}
-          />
-          <Field
-            id="hostel_details"
-            label="Hostel block"
-            value={form.hostel_details}
-            error={errors["hostel_details"]}
-            placeholder="e.g. Block C"
-            onChange={(v) => setForm({ ...form, hostel_details: v })}
-          />
-          <Field
-            id="room_number"
-            label="Room number"
-            value={form.room_number}
-            error={errors["room_number"]}
-            placeholder="e.g. 214"
-            onChange={(v) => setForm({ ...form, room_number: v })}
-          />
+        {/* 2. VIP Membership */}
+        <Link
+          to="/vip"
+          className={cn(
+            "mt-4 flex items-center justify-between rounded-2xl border p-3.5 text-sm font-semibold transition-colors",
+            "border-primary/40 bg-accent text-primary",
+          )}
+        >
+          <span>
+            {vip.isVip ? "👑 Campu Royal VIP Card & Benefits" : "👑 Campu VIP membership"}
+          </span>
+          <span>→</span>
+        </Link>
 
-          <Button
-            type="submit"
-            disabled={busy}
-            className="h-12 w-full rounded-full bg-brand text-base font-semibold text-primary-foreground shadow-float hover:opacity-95"
+        {/* 3. Color Theme (Floating Modal Trigger) */}
+        <button
+          type="button"
+          onClick={() => setThemeOpen(true)}
+          className="mt-4 flex w-full items-center justify-between gap-3 rounded-2xl border border-border bg-card p-4 text-left shadow-card transition-all hover:bg-muted/40 active:scale-[0.99]"
+        >
+          <div className="flex min-w-0 items-center gap-3">
+            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-accent text-primary">
+              <Palette className="h-5 w-5" />
+            </span>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-foreground">Your color theme</p>
+              <div className="mt-0.5 flex items-center gap-2">
+                <span className="flex shrink-0 -space-x-1">
+                  {activeTheme.swatches.map((hex, i) => (
+                    <span
+                      key={i}
+                      className="h-3.5 w-3.5 rounded-full border border-black/15"
+                      style={{ backgroundColor: hex }}
+                    />
+                  ))}
+                </span>
+                <span className="truncate text-xs text-muted-foreground">{activeTheme.name}</span>
+              </div>
+            </div>
+          </div>
+          <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-accent px-2.5 py-1 text-[11px] font-bold text-primary">
+            Change <ChevronRight className="h-3.5 w-3.5" />
+          </span>
+        </button>
+
+        {/* 4. Terms & Conditions */}
+        <div className="mt-4 rounded-2xl border border-border bg-card p-4">
+          <button
+            type="button"
+            onClick={() => setTermsOpen((v) => !v)}
+            aria-expanded={termsOpen}
+            className="flex w-full items-center justify-between gap-2 text-left"
           >
-            Save details
-          </Button>
-        </form>
+            <span className="flex items-center gap-2 text-sm font-semibold">
+              <FileText className="h-4 w-4 text-primary" />
+              Terms & Conditions
+            </span>
+            <ChevronDown
+              className={cn("h-4 w-4 text-muted-foreground transition-transform", termsOpen && "rotate-180")}
+            />
+          </button>
+          {termsOpen && (
+            <ul className="mt-3 space-y-2 border-t border-border/70 pt-3 text-xs leading-relaxed text-muted-foreground">
+              <li>
+                <strong className="text-foreground">1. Delivery Schedule & Timings:</strong> Orders operate in India Standard Time (Asia/Kolkata). Quick Delivery items arrive within the displayed estimate; Sunday & Tuesday Special Delivery orders are delivered on the upcoming scheduled slot.
+              </li>
+              <li>
+                <strong className="text-foreground">2. Minimum Order & Fees:</strong> Standard orders follow the active delivery mode minimum order value and fee schedule. Sunday & Tuesday Special Delivery requires a ₹99 minimum order.
+              </li>
+              <li>
+                <strong className="text-foreground">3. Campu VIP Membership:</strong> The ₹149 pass is valid for 30 days from approval and includes 2 free Quick Deliveries per day (no minimum order value), plus discounted Sunday & Tuesday Special Delivery rates. Membership activates only after UTR verification.
+              </li>
+              <li>
+                <strong className="text-foreground">4. Payments & UTR Verification:</strong> All UPI payments require a valid 12-digit UTR/reference number. Duplicate or unverified UTR submissions will be rejected. Confirmed orders cannot be cancelled once dispatched.
+              </li>
+              <li>
+                <strong className="text-foreground">5. Hostel Delivery Policy:</strong> Ensure accurate phone number, hostel block, and room number before checkout so our campus rider can reach you promptly.
+              </li>
+            </ul>
+          )}
+        </div>
 
-        <div className="mt-6 rounded-2xl border border-border bg-card p-4">
+        {/* 5. Notification Alerts */}
+        <div className="mt-4 rounded-2xl border border-border bg-card p-4">
           <p className="text-sm font-semibold">Order alerts</p>
           <p className="mt-1 text-xs text-muted-foreground">
             Get a notification on this device when your order is accepted, on the way or delivered —
@@ -207,19 +338,129 @@ function ProfilePage() {
           </Button>
         </div>
 
-        {isAdmin && (
-          <Button
-            variant="outline"
-            className="mt-4 h-11 w-full rounded-full"
-            onClick={() => navigate({ to: "/admin" })}
-          >
-            <ShieldCheck className="mr-2 h-4 w-4" /> Open admin dashboard
-          </Button>
-        )}
+        {/* 6. Delivery Address & Save Details (Placed right before Sign Out, Floating Dialog Trigger) */}
+        <button
+          type="button"
+          onClick={() => setAddressOpen(true)}
+          className="mt-4 flex w-full items-center justify-between gap-3 rounded-2xl border border-border bg-card p-4 text-left shadow-card transition-all hover:bg-muted/40 active:scale-[0.99]"
+        >
+          <div className="flex min-w-0 items-center gap-3">
+            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-accent text-primary">
+              <MapPin className="h-5 w-5" />
+            </span>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-foreground">Delivery address & details</p>
+              <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                {form.hostel_details && form.room_number
+                  ? `${form.full_name || "Saved"} · ${form.hostel_details}, Room ${form.room_number}${form.phone_number ? ` · ${form.phone_number}` : ""}`
+                  : "Tap to add name, phone, hostel block & room number"}
+              </p>
+            </div>
+          </div>
+          <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-brand px-3 py-1 text-[11px] font-bold text-primary-foreground shadow-xs">
+            {form.hostel_details && form.room_number ? "Edit" : "Save details"}
+          </span>
+        </button>
 
-        <Button variant="ghost" className="mt-2 h-11 w-full rounded-full" onClick={signOut}>
+        {/* 7. Sign Out */}
+        <Button variant="ghost" className="mt-4 h-11 w-full rounded-full" onClick={signOut}>
           <LogOut className="mr-2 h-4 w-4" /> Sign out
         </Button>
+
+        {/* Floating Color Theme Picker Dialog */}
+        <Dialog open={themeOpen} onOpenChange={setThemeOpen}>
+          <DialogContent className="max-h-[85vh] w-[calc(100%-1.5rem)] min-w-0 max-w-lg overflow-x-hidden overflow-y-auto rounded-3xl border border-border bg-background p-4 sm:p-5">
+            <DialogHeader className="text-left">
+              <DialogTitle className="font-display text-lg font-bold">Choose Color Theme</DialogTitle>
+              <DialogDescription className="text-xs">
+                Pick any of the 12 color themes — updates instantly across the app.
+              </DialogDescription>
+            </DialogHeader>
+            <ThemePicker
+              title="12 Color Themes"
+              activeThemeId={activeThemeId}
+              showReset={userTheme !== null}
+              onSelect={(id, name) => {
+                setUserTheme(id);
+                setUserThemeOverride(id);
+                applyAppTheme(id);
+                toast.success(`Theme switched to ${name}`);
+                setThemeOpen(false);
+              }}
+              onReset={() => {
+                setUserTheme(null);
+                setUserThemeOverride(null);
+                applyAppTheme(storeDefaultTheme);
+                toast.success("Restored store default theme");
+                setThemeOpen(false);
+              }}
+            />
+          </DialogContent>
+        </Dialog>
+
+        {/* Floating Delivery Address & Save Details Dialog */}
+        <Dialog open={addressOpen} onOpenChange={setAddressOpen}>
+          <DialogContent className="max-h-[85vh] w-[calc(100%-1.5rem)] min-w-0 max-w-md overflow-x-hidden overflow-y-auto rounded-3xl border border-border bg-card p-5">
+            <DialogHeader className="text-left">
+              <DialogTitle className="flex items-center gap-2 font-display text-lg font-bold">
+                <MapPin className="h-5 w-5 text-primary" />
+                Delivery Address & Details
+              </DialogTitle>
+              <DialogDescription className="text-xs">
+                Save your name, mobile number, hostel block and room number for quick delivery.
+              </DialogDescription>
+            </DialogHeader>
+
+            {next === "checkout" && (
+              <div className="rounded-2xl border border-warning/40 bg-warning/15 p-3 text-xs">
+                Please complete your phone number, hostel block and room number before placing your
+                first order.
+              </div>
+            )}
+
+            <form onSubmit={save} className="space-y-3.5">
+              <Field
+                id="full_name"
+                label="Full name"
+                value={form.full_name}
+                error={errors["full_name"]}
+                onChange={(v) => setForm({ ...form, full_name: v })}
+              />
+              <Field
+                id="phone_number"
+                label="Phone number"
+                value={form.phone_number}
+                error={errors["phone_number"]}
+                placeholder="10-digit mobile number"
+                onChange={(v) => setForm({ ...form, phone_number: v.replace(/\D/g, "").slice(0, 10) })}
+              />
+              <Field
+                id="hostel_details"
+                label="Hostel block"
+                value={form.hostel_details}
+                error={errors["hostel_details"]}
+                placeholder="e.g. Block C"
+                onChange={(v) => setForm({ ...form, hostel_details: v })}
+              />
+              <Field
+                id="room_number"
+                label="Room number"
+                value={form.room_number}
+                error={errors["room_number"]}
+                placeholder="e.g. 214"
+                onChange={(v) => setForm({ ...form, room_number: v })}
+              />
+
+              <Button
+                type="submit"
+                disabled={busy}
+                className="mt-2 h-12 w-full rounded-full bg-brand text-base font-semibold text-primary-foreground shadow-float hover:opacity-95"
+              >
+                Save details
+              </Button>
+            </form>
+          </DialogContent>
+        </Dialog>
       </div>
     </AppShell>
   );

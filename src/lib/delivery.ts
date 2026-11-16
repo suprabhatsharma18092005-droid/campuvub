@@ -90,7 +90,7 @@ export function useDeliveryMode(): DeliveryMode {
 
 export const MODE_LABEL: Record<DeliveryMode, string> = {
   quick: "Quick Delivery",
-  sunday_tuesday: "Sunday/Tuesday Delivery",
+  sunday_tuesday: "Sunday & Tuesday Special Delivery",
 };
 
 function to12h(t: string) {

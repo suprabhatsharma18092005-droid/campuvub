@@ -157,15 +157,21 @@ export function useCartQty(id: string): number {
   );
 }
 
-/** Drops cart items whose product is not sold in the selected delivery mode. */
+/** Drops cart items unavailable in the selected mode or out of stock, and clamps qty to live stock. */
 export function useEnforceCartMode() {
   const { data } = useQuery(productsQuery);
   const items = useCart().items;
   const mode = useSyncExternalStore(subscribeDeliveryMode, getDeliveryMode, () => "quick" as DeliveryMode);
   useEffect(() => {
     if (!data) return;
-    const ok = new Map(data.map((p) => [p.id, productInMode(p.delivery_types, mode)]));
-    const bad = items.filter((i) => !ok.get(i.id));
-    if (bad.length) bad.forEach((i) => cartApi.remove(i.id));
+    const byId = new Map(data.map((p) => [p.id, p]));
+    for (const item of items) {
+      const prod = byId.get(item.id);
+      if (!prod || !productInMode(prod.delivery_types, mode) || !prod.in_stock || prod.stock_quantity <= 0) {
+        cartApi.remove(item.id);
+      } else if (item.qty > prod.stock_quantity) {
+        cartApi.setQty(item.id, prod.stock_quantity);
+      }
+    }
   }, [data, items, mode]);
 }

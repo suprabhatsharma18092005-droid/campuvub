@@ -18,6 +18,7 @@ export const pushEventSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('new_order'), orderId: z.string().uuid() }),
   z.object({ type: z.literal('order_status'), orderId: z.string().uuid() }),
   z.object({ type: z.literal('broadcast'), broadcastId: z.string().uuid() }),
+  z.object({ type: z.literal('vip_request'), vipId: z.string().uuid() }),
   z.object({ type: z.literal('test') }),
 ]);
 export type PushEvent = z.infer<typeof pushEventSchema>;
@@ -74,6 +75,27 @@ export async function runPushEvent(event: PushEvent, ctx: EventContext): Promise
       if (!row || !isRecent(row.created_at)) throw new PushForbiddenError('Forbidden');
       return delivery.safelySendPush(() => delivery.deviceTokens(), { title: row.title, body: row.body, path: '/' });
     }
+    case 'vip_request': {
+      const { data: sub } = await ctx.supabase
+        .from('vip_subscriptions')
+        .select('id,user_id,utr_number,amount,created_at')
+        .eq('id', event.vipId)
+        .maybeSingle();
+      if (!sub || sub.user_id !== ctx.userId || !isRecent(sub.created_at)) {
+        throw new PushForbiddenError('Forbidden');
+      }
+      const { data: profile } = await ctx.supabase
+        .from('profiles')
+        .select('full_name')
+        .eq('id', ctx.userId)
+        .maybeSingle();
+      return delivery.sendVipRequestAlert({
+        id: sub.id,
+        customerName: profile?.full_name?.trim() || 'A student',
+        utrNumber: sub.utr_number,
+        amount: Number(sub.amount),
+      });
+    }
     case 'test': {
       if (!(await isAdmin(ctx))) throw new PushForbiddenError('Forbidden');
       const tokens = await delivery.deviceTokens([ctx.userId]);
@@ -111,6 +133,9 @@ export async function forwardPushEvent(event: PushEvent, auth: string | null | u
 /** Send here when possible, otherwise hand the event to the trusted host. Never throws. */
 export async function dispatchPushEvent(event: PushEvent, ctx: EventContext): Promise<PushEventResult> {
   try {
+    if (!process.env['SUPABASE_URL'] || !process.env['SUPABASE_PUBLISHABLE_KEY']) {
+      return { sent: 0 };
+    }
     if (canSendLocally()) return await runPushEvent(event, ctx);
     return await forwardPushEvent(event, getRequest()?.headers.get('authorization'), {
       base: process.env['PUSH_EVENT_HOST_URL'],

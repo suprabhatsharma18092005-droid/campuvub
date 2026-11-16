@@ -14,7 +14,7 @@ const OPTIONS: {
   { value: "quick", label: "Quick Delivery", detail: "Get it Faster!", Icon: Zap },
   {
     value: "sunday_tuesday",
-    label: "Sun & Tue Special",
+    label: "Sunday & Tuesday Special Delivery",
     detail: "Special Offer",
     Icon: Sparkles,
   },
