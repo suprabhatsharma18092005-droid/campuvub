@@ -33,6 +33,30 @@ export const pushEventSchema = z.discriminatedUnion('type', [
     coins: z.number().int().min(50),
     status: z.enum(['approved', 'rejected']),
   }),
+  z.object({
+    type: z.literal('delivery_assigned'),
+    boyUserId: z.string().uuid(),
+    orderId: z.string().uuid(),
+    deliveryAddress: z.string().max(240),
+    paymentMethod: z.enum(['UPI', 'COD']),
+    paidWithCoins: z.boolean(),
+    codCollectAmount: z.number().nullable(),
+  }),
+  z.object({
+    type: z.literal('delivery_payout_request'),
+    boyName: z.string().max(80),
+    amount: z.number().positive(),
+    method: z.enum(['UPI', 'COD']),
+    upiId: z.string().max(120).nullable().optional(),
+    bankingName: z.string().max(120).nullable().optional(),
+  }),
+  z.object({
+    type: z.literal('delivery_payout_status'),
+    boyUserId: z.string().uuid(),
+    amount: z.number().positive(),
+    status: z.enum(['paid', 'rejected']),
+    method: z.enum(['UPI', 'COD']),
+  }),
   z.object({ type: z.literal('test') }),
 ]);
 export type PushEvent = z.infer<typeof pushEventSchema>;
@@ -127,6 +151,35 @@ export async function runPushEvent(event: PushEvent, ctx: EventContext): Promise
         status: event.status,
       });
     }
+    case 'delivery_assigned': {
+      if (!(await isAdmin(ctx))) throw new PushForbiddenError('Forbidden');
+      return delivery.sendDeliveryAssignedAlert({
+        boyUserId: event.boyUserId,
+        orderId: event.orderId,
+        deliveryAddress: event.deliveryAddress,
+        paymentMethod: event.paymentMethod,
+        paidWithCoins: event.paidWithCoins,
+        codCollectAmount: event.codCollectAmount,
+      });
+    }
+    case 'delivery_payout_request': {
+      return delivery.sendDeliveryPayoutRequestAlert({
+        boyName: event.boyName,
+        amount: event.amount,
+        method: event.method,
+        upiId: event.upiId,
+        bankingName: event.bankingName,
+      });
+    }
+    case 'delivery_payout_status': {
+      if (!(await isAdmin(ctx))) throw new PushForbiddenError('Forbidden');
+      return delivery.sendDeliveryPayoutStatusAlert({
+        boyUserId: event.boyUserId,
+        amount: event.amount,
+        status: event.status,
+        method: event.method,
+      });
+    }
     case 'test': {
       if (!(await isAdmin(ctx))) throw new PushForbiddenError('Forbidden');
       const tokens = await delivery.deviceTokens([ctx.userId]);
@@ -139,6 +192,14 @@ export async function runPushEvent(event: PushEvent, ctx: EventContext): Promise
 }
 
 type ForwardOptions = { base?: string | undefined; fetchImpl?: typeof fetch };
+
+const LOCAL_ONLY_EVENT_TYPES = new Set([
+  'coin_request',
+  'coin_status',
+  'delivery_assigned',
+  'delivery_payout_request',
+  'delivery_payout_status',
+]);
 
 /**
  * Hands an event to the trusted host with the caller's own session. Only the
@@ -155,7 +216,7 @@ export async function forwardPushEvent(event: PushEvent, auth: string | null | u
   });
   if (!res.ok) {
     const errBody = (await res.text()).slice(0, 200);
-    if (res.status === 400 && (event.type === 'coin_request' || event.type === 'coin_status')) {
+    if (res.status === 400 && LOCAL_ONLY_EVENT_TYPES.has(event.type)) {
       return { sent: 0 };
     }
     console.error(`Push event hand-off failed [${res.status}]: ${errBody}`);
@@ -172,8 +233,7 @@ export async function dispatchPushEvent(event: PushEvent, ctx: EventContext): Pr
       return { sent: 0 };
     }
     if (canSendLocally()) return await runPushEvent(event, ctx);
-    // Remote default host doesn't recognize custom coin_* push variants yet; rely on realtime sync unless a custom push host is set.
-    if ((event.type === 'coin_request' || event.type === 'coin_status') && !process.env['PUSH_EVENT_HOST_URL']) {
+    if (LOCAL_ONLY_EVENT_TYPES.has(event.type) && !process.env['PUSH_EVENT_HOST_URL']) {
       return { sent: 0 };
     }
     return await forwardPushEvent(event, getRequest()?.headers.get('authorization'), {

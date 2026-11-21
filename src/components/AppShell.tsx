@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { SupabaseClient } from "@supabase/supabase-js";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import {
+  Bike,
   Crown,
   Heart,
   Home,
@@ -21,6 +22,7 @@ import { CartBar } from "@/components/CartBar";
 import { CatalogImage } from "@/components/CatalogImage";
 import { PushBanner } from "@/components/PushBanner";
 import { AdminCoinNotifier, StudentCoinStatusNotifier } from "@/components/admin/AdminCoinNotifier";
+import { AdminDeliveryNotifier, DeliveryBoyNotifier } from "@/components/delivery/DeliveryBoySiren";
 import {
   Sheet,
   SheetContent,
@@ -31,6 +33,7 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { useCart } from "@/lib/cart";
 import { setDeliveryMode, useDeliveryMode } from "@/lib/delivery";
+import { useDeliveryBoyState } from "@/lib/delivery-boy";
 import { toggleFavorite, useFavoriteIds } from "@/lib/favorites";
 import { rupees } from "@/lib/format";
 import { useLiveSync, usePushRegistration } from "@/lib/live-sync";
@@ -58,6 +61,7 @@ export function AppShell({
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const { session } = useSession();
   const royal = useRoyalThemeState();
+  const { isActiveBoy } = useDeliveryBoyState();
   const mode = useDeliveryMode();
   const favoriteIds = useFavoriteIds();
   const products = useQuery(productsQuery);
@@ -149,7 +153,9 @@ export function AppShell({
   return (
     <RoyalThemeContext.Provider value={royal}>
       {royal.isAdmin && <AdminCoinNotifier />}
+      {royal.isAdmin && <AdminDeliveryNotifier />}
       {session?.user.id && <StudentCoinStatusNotifier userId={session.user.id} />}
+      {session?.user.id && <DeliveryBoyNotifier />}
       <div
         data-royal={royal.isRoyal ? "true" : undefined}
         className="flex min-h-screen w-full flex-col overflow-x-clip bg-background"
@@ -328,6 +334,18 @@ export function AppShell({
                   </span>
                   <span className="text-center leading-none group-data-[status=active]:font-extrabold">
                     Admin
+                  </span>
+                </Link>
+              ) : isActiveBoy ? (
+                <Link
+                  to="/delivery"
+                  className="group flex min-h-12 flex-col items-center justify-center gap-0.5 rounded-2xl px-0.5 py-1 text-[9.5px] font-semibold text-muted-foreground transition-all duration-200 hover:text-foreground active:scale-95 data-[status=active]:text-primary"
+                >
+                  <span className="grid place-items-center rounded-full px-2.5 py-1 transition-all duration-200 group-data-[status=active]:bg-accent group-data-[status=active]:text-primary group-data-[status=active]:shadow-xs">
+                    <Bike className="h-[18px] w-[18px]" strokeWidth={2.1} />
+                  </span>
+                  <span className="text-center leading-none group-data-[status=active]:font-extrabold">
+                    Delivery
                   </span>
                 </Link>
               ) : (

@@ -12,7 +12,7 @@ const TABLE_KEYS: Record<string, string[][]> = {
   subcategories: [["subcategories"]],
   brands: [["brands"]],
   banners: [["banners"], ["admin-banners"]],
-  app_settings: [["app_settings"], ["admin-coins"]],
+  app_settings: [["app_settings"], ["admin-coins"], ["admin-delivery-boy"]],
 };
 
 let mounted = 0;

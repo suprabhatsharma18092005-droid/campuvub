@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, useNavigate, useSearch } from "@tanstack/react-router";
 import {
   Bell,
+  Bike,
   ChevronDown,
   ChevronRight,
   Coins,
@@ -46,6 +47,7 @@ import {
   type AppThemeId,
 } from "@/lib/themes";
 import { useCoinWallet } from "@/lib/coins";
+import { useDeliveryBoyState } from "@/lib/delivery-boy";
 import { rupees } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { ADMIN_EMAIL } from "@/lib/vip";
@@ -182,6 +184,7 @@ function ProfilePage() {
   }
 
   const wallet = useCoinWallet();
+  const deliveryBoy = useDeliveryBoyState();
   const isAdmin = Boolean(
     roles?.includes("admin") ||
       roles?.includes("vendor") ||
@@ -241,6 +244,42 @@ function ProfilePage() {
               My Orders
             </Button>
           </div>
+        )}
+
+        {(deliveryBoy.isActiveBoy || isAdmin) && (
+          <Link
+            to="/delivery"
+            className="mt-4 flex items-center justify-between gap-3 rounded-2xl border border-primary/35 bg-accent/35 p-3.5 text-sm font-semibold shadow-card transition-colors hover:bg-accent/55"
+          >
+            <span className="flex min-w-0 items-center gap-2.5">
+              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-brand text-primary-foreground">
+                <Bike className="h-4 w-4" />
+              </span>
+              <span className="min-w-0">
+                <span className="block truncate font-bold text-foreground">
+                  Delivery Partner Dashboard
+                </span>
+                <span className="block truncate text-xs font-normal text-muted-foreground tabular-nums">
+                  {deliveryBoy.isActiveBoy
+                    ? `Earnings balance: ${rupees(deliveryBoy.summary.withdrawableBalance)} · ${deliveryBoy.assignments.filter((a) => a.status === "assigned" || a.status === "out_for_delivery").length} active`
+                    : "Preview assigned deliveries & payout portal"}
+                </span>
+              </span>
+            </span>
+            <span className="shrink-0 text-xs font-bold text-primary">Open →</span>
+          </Link>
+        )}
+
+        {deliveryBoy.isActiveBoy && !isAdmin && (
+          <Button
+            type="button"
+            variant="outline"
+            className="mt-3 h-11 w-full rounded-2xl border-primary/35 font-bold text-primary"
+            onClick={() => navigate({ to: "/orders" })}
+          >
+            <ReceiptText className="mr-1.5 h-4 w-4" />
+            My Personal Orders
+          </Button>
         )}
 
         {/* Campu Coins Wallet */}

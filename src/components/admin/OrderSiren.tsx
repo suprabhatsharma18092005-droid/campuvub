@@ -1,10 +1,11 @@
 import { Link } from "@tanstack/react-router";
-import { BellRing, Coins } from "lucide-react";
+import { Banknote, BellRing, Coins } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import type { CoinTopupRequest } from "@/lib/coins";
-import { ringingCoinRequestIds, ringingOrderIds } from "@/lib/order-siren";
+import type { DeliveryPayoutRequest } from "@/lib/delivery-boy";
+import { ringingCoinRequestIds, ringingOrderIds, ringingPayoutIds } from "@/lib/order-siren";
 
 const ACK_KEY = "campu-admin-acknowledged-orders";
 
@@ -50,14 +51,16 @@ function ring() {
   }
 }
 
-/** Keeps ringing (sound + flashing tab title) while recent orders or coin requests are unacknowledged. */
+/** Keeps ringing (sound + flashing tab title) while recent orders, coin requests, or payout requests are unacknowledged. */
 export function OrderSiren({
   orders,
   coinRequests = [],
+  payoutRequests = [],
   enabled,
 }: {
   orders: { id: string; status: string; created_at: string }[];
   coinRequests?: CoinTopupRequest[];
+  payoutRequests?: DeliveryPayoutRequest[];
   enabled: boolean;
 }) {
   const [acks, setAcks] = useState<Set<string>>(new Set());
@@ -90,7 +93,11 @@ export function OrderSiren({
     () => ringingCoinRequestIds(coinRequests, acks, now),
     [coinRequests, acks, now],
   );
-  const totalCount = ringingOrders.length + ringingCoins.length;
+  const ringingPayouts = useMemo(
+    () => ringingPayoutIds(payoutRequests, acks, now),
+    [payoutRequests, acks, now],
+  );
+  const totalCount = ringingOrders.length + ringingCoins.length + ringingPayouts.length;
   const active = totalCount > 0;
 
   useEffect(() => {
@@ -105,11 +112,13 @@ export function OrderSiren({
     baseTitle.current = document.title;
     let on = false;
     const label =
-      ringingCoins.length > 0 && ringingOrders.length === 0
-        ? `🪙 (${ringingCoins.length}) COIN REQUEST! - Campu`
-        : ringingCoins.length > 0
-          ? `🔴 (${totalCount}) ORDER + COIN ALERT! - Campu`
-          : `🔴 (${ringingOrders.length}) NEW ORDER! - Campu`;
+      ringingPayouts.length > 0 && ringingOrders.length === 0 && ringingCoins.length === 0
+        ? `💸 (${ringingPayouts.length}) PAYOUT REQUEST! - Campu`
+        : ringingCoins.length > 0 && ringingOrders.length === 0 && ringingPayouts.length === 0
+          ? `🪙 (${ringingCoins.length}) COIN REQUEST! - Campu`
+          : ringingOrders.length > 0 && ringingCoins.length === 0 && ringingPayouts.length === 0
+            ? `🔴 (${ringingOrders.length}) NEW ORDER! - Campu`
+            : `🔴 (${totalCount}) NEW ALERTS! - Campu`;
     const t = setInterval(() => {
       on = !on;
       document.title = on ? label : baseTitle.current;
@@ -118,12 +127,13 @@ export function OrderSiren({
       clearInterval(t);
       document.title = baseTitle.current;
     };
-  }, [active, totalCount, ringingOrders.length, ringingCoins.length]);
+  }, [active, totalCount, ringingOrders.length, ringingCoins.length, ringingPayouts.length]);
 
   function acknowledge() {
     const next = new Set(acks);
     ringingOrders.forEach((id) => next.add(id));
     ringingCoins.forEach((id) => next.add(`coin:${id}`));
+    ringingPayouts.forEach((id) => next.add(`payout:${id}`));
     const kept = [...next].slice(-500);
     localStorage.setItem(ACK_KEY, JSON.stringify(kept));
     setAcks(new Set(kept));
@@ -131,12 +141,17 @@ export function OrderSiren({
 
   if (!active) return null;
 
-  const headline =
-    ringingOrders.length > 0 && ringingCoins.length > 0
-      ? `${ringingOrders.length} order${ringingOrders.length > 1 ? "s" : ""} & ${ringingCoins.length} coin recharge${ringingCoins.length > 1 ? "s" : ""} waiting!`
-      : ringingCoins.length > 0
-        ? `${ringingCoins.length} new coin recharge${ringingCoins.length > 1 ? "s" : ""} waiting!`
-        : `${ringingOrders.length} new order${ringingOrders.length > 1 ? "s" : ""} waiting!`;
+  const parts: string[] = [];
+  if (ringingOrders.length > 0) {
+    parts.push(`${ringingOrders.length} order${ringingOrders.length > 1 ? "s" : ""}`);
+  }
+  if (ringingCoins.length > 0) {
+    parts.push(`${ringingCoins.length} coin recharge${ringingCoins.length > 1 ? "s" : ""}`);
+  }
+  if (ringingPayouts.length > 0) {
+    parts.push(`${ringingPayouts.length} payout request${ringingPayouts.length > 1 ? "s" : ""}`);
+  }
+  const headline = `${parts.join(" & ")} waiting!`;
 
   return (
     <div
@@ -148,7 +163,9 @@ export function OrderSiren({
         <span className="relative grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-destructive/15 text-destructive">
           <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 animate-ping rounded-full bg-destructive" />
           <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-destructive" />
-          {ringingCoins.length > 0 && ringingOrders.length === 0 ? (
+          {ringingPayouts.length > 0 && ringingOrders.length === 0 && ringingCoins.length === 0 ? (
+            <Banknote className="h-5 w-5" />
+          ) : ringingCoins.length > 0 && ringingOrders.length === 0 && ringingPayouts.length === 0 ? (
             <Coins className="h-5 w-5" />
           ) : (
             <BellRing className="h-5 w-5" />
@@ -164,7 +181,7 @@ export function OrderSiren({
               : "Alerts are off."}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {ringingCoins.length > 0 && (
             <Link
               to="/admin"
@@ -172,6 +189,15 @@ export function OrderSiren({
               className="inline-flex h-9 items-center rounded-full border border-destructive/40 bg-background px-3.5 text-xs font-bold text-destructive hover:bg-accent"
             >
               Review Coins
+            </Link>
+          )}
+          {ringingPayouts.length > 0 && (
+            <Link
+              to="/admin"
+              search={{ tab: "delivery" }}
+              className="inline-flex h-9 items-center rounded-full border border-destructive/40 bg-background px-3.5 text-xs font-bold text-destructive hover:bg-accent"
+            >
+              Review Payouts
             </Link>
           )}
           <Button

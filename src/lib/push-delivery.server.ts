@@ -101,3 +101,58 @@ export async function sendCoinStatusAlert(info: {
   });
 }
 
+export async function sendDeliveryAssignedAlert(info: {
+  boyUserId: string;
+  orderId: string;
+  deliveryAddress: string;
+  paymentMethod: 'UPI' | 'COD';
+  paidWithCoins: boolean;
+  codCollectAmount: number | null;
+}) {
+  const isPrepaid = info.paymentMethod === 'UPI' || info.paidWithCoins;
+  const body = isPrepaid
+    ? `Prepaid UPI order #${info.orderId.slice(0, 8).toUpperCase()} for ${info.deliveryAddress}.`
+    : `COD order #${info.orderId.slice(0, 8).toUpperCase()} · Collect ₹${Number(info.codCollectAmount ?? 0).toFixed(0)} at ${info.deliveryAddress}.`;
+  return safelySendPush(() => deviceTokens([info.boyUserId]), {
+    title: '🛵 New Delivery Assigned!',
+    body,
+    path: '/delivery',
+  });
+}
+
+export async function sendDeliveryPayoutRequestAlert(info: {
+  boyName: string;
+  amount: number;
+  method: 'UPI' | 'COD';
+  upiId?: string | null | undefined;
+  bankingName?: string | null | undefined;
+}) {
+  const detail =
+    info.method === 'UPI'
+      ? `UPI: ${info.upiId ?? ''} (${info.bankingName ?? ''})`
+      : 'Cash on Delivery (Cash Handover)';
+  return safelySendPush(adminTokens, {
+    title: `💸 Delivery Payout Request (₹${Number(info.amount).toFixed(0)})`,
+    body: `${info.boyName} requested ₹${Number(info.amount).toFixed(0)} via ${detail}.`,
+    path: '/admin?tab=delivery',
+  });
+}
+
+export async function sendDeliveryPayoutStatusAlert(info: {
+  boyUserId: string;
+  amount: number;
+  status: 'paid' | 'rejected';
+  method: 'UPI' | 'COD';
+}) {
+  return safelySendPush(() => deviceTokens([info.boyUserId]), {
+    title:
+      info.status === 'paid'
+        ? `💸 Payout Sent! (₹${Number(info.amount).toFixed(0)})`
+        : 'Payout Request Rejected',
+    body:
+      info.status === 'paid'
+        ? `Your ₹${Number(info.amount).toFixed(0)} ${info.method === 'UPI' ? 'UPI' : 'Cash'} payout has been completed.`
+        : `Your ₹${Number(info.amount).toFixed(0)} payout request was declined by Admin.`,
+    path: '/delivery',
+  });
+}

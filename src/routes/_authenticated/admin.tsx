@@ -3,6 +3,7 @@ import { createFileRoute, useNavigate, useSearch } from "@tanstack/react-router"
 import { useServerFn } from "@tanstack/react-start";
 import {
   Bell,
+  Bike,
   Check,
   Crown,
   IndianRupee,
@@ -38,16 +39,30 @@ import { brandsQuery, categoriesQuery, productsQuery, settingsQuery, subcategori
 import { type OrderReplacement } from "@/lib/replacements";
 import { CatalogHierarchyManager } from "@/components/admin/CatalogHierarchyManager";
 import { CoinRequests, coinAdminQuery, loadAndSyncAdminCoins } from "@/components/admin/CoinRequests";
+import { DeliveryBoysManager } from "@/components/admin/DeliveryBoysManager";
 import { OrderReplacementManager } from "@/components/admin/OrderReplacementManager";
 import { OrderSiren } from "@/components/admin/OrderSiren";
 import { VipRequests, vipAdminQuery } from "@/components/admin/VipRequests";
+import {
+  deliveryBoyAdminQuery,
+  loadAndSyncDeliveryBoyAdmin,
+} from "@/components/delivery/DeliveryBoySiren";
 import { COIN_LEDGER_SETTING_KEY, applyOrderCoinRefundToLedger, type CoinOrderUsage } from "@/lib/coins";
+import {
+  DELIVERY_BOY_STATE_KEY,
+  applyDeliveredOtpToState,
+  buildAssignmentSnapshot,
+  computeDeliveryOtpDigest,
+  type DeliveryAssignment,
+  type DeliveryBoyProfile,
+} from "@/lib/delivery-boy";
+import { assignOrderDeliveryBoy } from "@/lib/delivery-boy.functions";
 import { useRoles, useSession } from "@/lib/session";
 import { QR_BUCKET } from "@/lib/upi";
 import { catalogReference, removeCatalogImage, uploadCatalogImage } from "@/lib/catalog-media";
 import { cn } from "@/lib/utils";
 
-const ADMIN_TABS = new Set(["dashboard", "queue", "orders", "stock", "vip", "coins", "blast", "settings"]);
+const ADMIN_TABS = new Set(["dashboard", "queue", "orders", "delivery", "stock", "vip", "coins", "blast", "settings"]);
 
 export const Route = createFileRoute("/_authenticated/admin")({
   validateSearch: z.object({ tab: z.string().optional() }),
@@ -76,6 +91,7 @@ type OrderRow = {
   cart_items: unknown;
   total: number | string;
   subtotal: number | string;
+  delivery_fee: number | string;
   status: string;
   payment_method: string;
   utr_number: string | null;
@@ -109,6 +125,7 @@ function Admin() {
   const [activeTab, setActiveTab] = useState(initialTab);
   const [orderDeliveryFilter, setOrderDeliveryFilter] = useState<"all" | "quick" | "sunday_tuesday">("all");
   const updateOrder = useServerFn(updateOrderWithPush);
+  const assignDeliveryBoyRemote = useServerFn(assignOrderDeliveryBoy);
   const [sound, setSound] = useState(true);
   const [busyOrderId, setBusyOrderId] = useState<string | null>(null);
   const seen = useRef<Set<string>>(new Set());
@@ -131,6 +148,12 @@ function Admin() {
     ...coinAdminQuery,
     enabled: Boolean(isStaff),
     refetchInterval: 6_000,
+  });
+
+  const deliveryAdmin = useQuery({
+    ...deliveryBoyAdminQuery,
+    enabled: Boolean(isStaff),
+    refetchInterval: 8_000,
   });
 
   const orders = useQuery({
@@ -231,9 +254,17 @@ function Admin() {
               onClick: () => setActiveTab("coins"),
             },
           });
+        } else if (text?.includes('"delivery_boy_payout_request"')) {
+          toast.info("💸 New Delivery Boy payout request received!", {
+            action: {
+              label: "Review",
+              onClick: () => setActiveTab("delivery"),
+            },
+          });
         }
         void queryClient.invalidateQueries({ queryKey: ["admin-replacement-suggestions"] });
         void queryClient.invalidateQueries({ queryKey: ["admin-coins"] });
+        void queryClient.invalidateQueries({ queryKey: ["admin-delivery-boy"] });
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "vip_subscriptions" }, (payload) => {
         if (payload.eventType === "INSERT") {
@@ -270,6 +301,22 @@ function Admin() {
             );
           refundedCoins = refAmt;
         }
+        const latestDelivery = await loadAndSyncDeliveryBoyAdmin();
+        if (latestDelivery.state.assignments.some((a) => a.orderId === id && a.status !== "cancelled")) {
+          const nextDelivery = {
+            ...latestDelivery.state,
+            assignments: latestDelivery.state.assignments.map((a) =>
+              a.orderId === id ? { ...a, status: "cancelled" as const } : a,
+            ),
+            updatedAt: new Date().toISOString(),
+          };
+          await supabase
+            .from("app_settings")
+            .upsert(
+              { key: DELIVERY_BOY_STATE_KEY, value: JSON.stringify(nextDelivery) },
+              { onConflict: "key" },
+            );
+        }
       }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not update order");
@@ -284,6 +331,67 @@ function Admin() {
     );
     void queryClient.invalidateQueries({ queryKey: ["admin-orders"] });
     void queryClient.invalidateQueries({ queryKey: ["admin-coins"] });
+    void queryClient.invalidateQueries({ queryKey: ["admin-delivery-boy"] });
+    void queryClient.invalidateQueries({ queryKey: ["app_settings"] });
+  }
+
+  /** Assigns a payment-verified/accepted order to a Delivery Boy and dispatches Push + Telegram alerts. */
+  async function assignOrderToBoy(order: OrderRow, boyId: string) {
+    if (order.status === "payment_review" || order.status === "pending") {
+      toast.error("Verify & accept payment first before assigning to a Delivery Boy.");
+      return;
+    }
+    setBusyOrderId(order.id);
+    try {
+      await assignDeliveryBoyRemote({ data: { orderId: order.id, boyId } });
+    } catch {
+      // Direct Admin RLS fallback when server env vars are absent on preview host
+      try {
+        const latest = await loadAndSyncDeliveryBoyAdmin();
+        const boy = latest.state.boys.find((b) => b.userId === boyId && b.active);
+        if (!boy) throw new Error("Selected Delivery Boy is not active.");
+        const otpDigest = await computeDeliveryOtpDigest(order.id, order.delivery_otp ?? "");
+        const existing = latest.state.assignments.find((a) => a.orderId === order.id);
+        const assignment = buildAssignmentSnapshot({
+          order,
+          boy,
+          customerName: (customers.data ?? {})[order.student_id] ?? "Student",
+          otpDigest,
+          salaryRule: latest.state.salaryRule,
+          coinUsage: coinUsages[order.id] ?? null,
+          existingId: existing?.id,
+        });
+        if (existing?.status === "out_for_delivery" && order.status === "out_for_delivery") {
+          assignment.status = "out_for_delivery";
+          assignment.outForDeliveryAt = existing.outForDeliveryAt ?? new Date().toISOString();
+        }
+        const nextState = {
+          ...latest.state,
+          assignments: [
+            assignment,
+            ...latest.state.assignments.filter((a) => a.orderId !== order.id),
+          ].slice(0, 200),
+          updatedAt: new Date().toISOString(),
+        };
+        const { error } = await supabase
+          .from("app_settings")
+          .upsert(
+            { key: DELIVERY_BOY_STATE_KEY, value: JSON.stringify(nextState) },
+            { onConflict: "key" },
+          );
+        if (error) throw new Error(error.message);
+      } catch (fallbackErr) {
+        setBusyOrderId(null);
+        toast.error(
+          fallbackErr instanceof Error ? fallbackErr.message : "Could not assign Delivery Boy",
+        );
+        return;
+      }
+    }
+    setBusyOrderId(null);
+    const chosenBoy = (deliveryAdmin.data?.state.boys ?? []).find((b) => b.userId === boyId);
+    toast.success(`Assigned to ${chosenBoy?.name ?? "Delivery Boy"} — notification sent!`);
+    void queryClient.invalidateQueries({ queryKey: ["admin-delivery-boy"] });
     void queryClient.invalidateQueries({ queryKey: ["app_settings"] });
   }
 
@@ -295,12 +403,27 @@ function Admin() {
     }
     try {
       await updateOrder({ data: { orderId: order.id, status: "delivered", otp: typed.trim() } });
+      // Credit assigned Delivery Boy earning idempotently if Admin completed the OTP handover
+      const latestDelivery = await loadAndSyncDeliveryBoyAdmin();
+      const { next, creditedAmount } = applyDeliveredOtpToState(latestDelivery.state, order.id);
+      if (next !== latestDelivery.state) {
+        await supabase
+          .from("app_settings")
+          .upsert(
+            { key: DELIVERY_BOY_STATE_KEY, value: JSON.stringify(next) },
+            { onConflict: "key" },
+          );
+        if (creditedAmount > 0) {
+          toast.info(`Delivery Boy credited ${rupees(creditedAmount)}`);
+        }
+      }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not deliver order");
       return false;
     }
     toast.success("Delivered — stock updated");
     void queryClient.invalidateQueries({ queryKey: ["admin-orders"] });
+    void queryClient.invalidateQueries({ queryKey: ["admin-delivery-boy"] });
     void queryClient.invalidateQueries({ queryKey: ["products"] });
     return true;
   }
@@ -353,6 +476,14 @@ function Admin() {
   const pendingVipCount = (vipRequests.data ?? []).filter((r) => r.status === "pending").length;
   const coinUsages = coinAdmin.data?.ledger.orderUsages ?? {};
   const pendingCoinCount = (coinAdmin.data?.ledger.requests ?? []).filter((r) => r.status === "pending").length;
+  const deliveryBoys = deliveryAdmin.data?.state.boys ?? [];
+  const activeDeliveryBoys = deliveryBoys.filter((b) => b.active);
+  const assignmentsByOrder = Object.fromEntries(
+    (deliveryAdmin.data?.state.assignments ?? []).map((a) => [a.orderId, a]),
+  ) as Record<string, DeliveryAssignment>;
+  const pendingPayoutCount = (deliveryAdmin.data?.state.payoutRequests ?? []).filter(
+    (r) => r.status === "pending",
+  ).length;
 
   function onTabChange(nextTab: string) {
     setActiveTab(nextTab);
@@ -388,6 +519,7 @@ function Admin() {
         <OrderSiren
           orders={all}
           coinRequests={coinAdmin.data?.ledger.requests ?? []}
+          payoutRequests={deliveryAdmin.data?.state.payoutRequests ?? []}
           enabled={sound}
         />
 
@@ -398,6 +530,16 @@ function Admin() {
               Payments {queue.length > 0 && `(${queue.length})`}
             </TabsTrigger>
             <TabsTrigger value="orders">Orders</TabsTrigger>
+            <TabsTrigger value="delivery" className="relative gap-1.5">
+              <Bike className="h-3.5 w-3.5" />
+              <span>Delivery</span>
+              {pendingPayoutCount > 0 && (
+                <span className="relative inline-flex items-center gap-1 rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-extrabold text-primary-foreground">
+                  <span className="h-1.5 w-1.5 animate-ping rounded-full bg-primary-foreground" />
+                  {pendingPayoutCount}
+                </span>
+              )}
+            </TabsTrigger>
             <TabsTrigger value="stock">Inventory</TabsTrigger>
             <TabsTrigger value="vip" className="relative gap-1.5">
               <span>VIP</span>
@@ -478,6 +620,9 @@ function Admin() {
                     <X className="mr-1.5 h-4 w-4" /> Reject
                   </Button>
                 </div>
+                <p className="mt-2 text-center text-[11px] text-muted-foreground">
+                  Verify payment first — then assign to a Delivery Boy in Orders → Active.
+                </p>
               </div>
               );
             })}
@@ -528,6 +673,10 @@ function Admin() {
                     products={products.data ?? []}
                     settings={appSettings.data}
                     fallbackReplacement={replacementSuggestions.data?.[o.id]}
+                    activeBoys={activeDeliveryBoys}
+                    assignment={assignmentsByOrder[o.id]}
+                    onAssignBoy={assignOrderToBoy}
+                    onManageBoys={() => onTabChange("delivery")}
                     updating={busyOrderId === o.id}
                     onAdvance={updateStatus}
                     onDeliver={deliverWithOtp}
@@ -548,6 +697,10 @@ function Admin() {
                     products={products.data ?? []}
                     settings={appSettings.data}
                     fallbackReplacement={replacementSuggestions.data?.[o.id]}
+                    activeBoys={activeDeliveryBoys}
+                    assignment={assignmentsByOrder[o.id]}
+                    onAssignBoy={assignOrderToBoy}
+                    onManageBoys={() => onTabChange("delivery")}
                     updating={busyOrderId === o.id}
                     onAdvance={updateStatus}
                     onDeliver={deliverWithOtp}
@@ -576,6 +729,10 @@ function Admin() {
                 </div>
               </TabsContent>
             </Tabs>
+          </TabsContent>
+
+          <TabsContent value="delivery" className="mt-4 min-w-0 max-w-full">
+            <DeliveryBoysManager />
           </TabsContent>
 
           <TabsContent value="stock" className="mt-4 min-w-0 max-w-full">
@@ -675,6 +832,10 @@ function ActiveOrder({
   products,
   settings,
   fallbackReplacement,
+  activeBoys,
+  assignment,
+  onAssignBoy,
+  onManageBoys,
   updating,
   onAdvance,
   onDeliver,
@@ -685,13 +846,23 @@ function ActiveOrder({
   products: ProductRow[];
   settings: Record<string, string> | undefined;
   fallbackReplacement?: OrderReplacement | null | undefined;
+  activeBoys: DeliveryBoyProfile[];
+  assignment?: DeliveryAssignment | undefined;
+  onAssignBoy: (order: OrderRow, boyId: string) => Promise<void>;
+  onManageBoys: () => void;
   updating: boolean;
   onAdvance: (id: string, status: string) => Promise<void>;
   onDeliver: (order: OrderRow, otp: string) => Promise<boolean>;
 }) {
   const [otp, setOtp] = useState("");
   const [busy, setBusy] = useState(false);
+  const [selectedBoyId, setSelectedBoyId] = useState(assignment?.boyId ?? "");
   const next = NEXT_ACTION[order.status];
+  const isVerifiedForDelivery = order.status === "accepted" || order.status === "out_for_delivery";
+
+  useEffect(() => {
+    if (assignment?.boyId) setSelectedBoyId(assignment.boyId);
+  }, [assignment?.boyId]);
 
   return (
     <div className="rounded-3xl border border-border bg-card p-4 shadow-card">
@@ -703,6 +874,68 @@ function ActiveOrder({
             Submitted UTR
           </p>
           <p className="font-mono text-sm font-extrabold tracking-wider">{order.utr_number}</p>
+        </div>
+      )}
+
+      {!isVerifiedForDelivery && (
+        <p className="mt-3 rounded-2xl border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-muted-foreground">
+          {order.status === "payment_review"
+            ? "Verify payment first before assigning this order to a Delivery Boy."
+            : "Accept this order first to assign a Delivery Boy."}
+        </p>
+      )}
+
+      {isVerifiedForDelivery && (
+        <div className="mt-3 rounded-2xl border border-primary/25 bg-accent/25 p-3">
+          <div className="flex items-center justify-between gap-2">
+            <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-primary">
+              <Bike className="h-3.5 w-3.5" />
+              Delivery Boy
+            </p>
+            {assignment && (
+              <span className="rounded-full bg-success/15 px-2 py-0.5 text-[10px] font-bold text-success">
+                {assignment.boyName} · {assignment.status.replace(/_/g, " ")}
+              </span>
+            )}
+          </div>
+
+          {activeBoys.length === 0 ? (
+            <div className="mt-2 flex items-center justify-between gap-2 text-xs text-muted-foreground">
+              <span>No active delivery boys yet.</span>
+              <button
+                type="button"
+                onClick={onManageBoys}
+                className="shrink-0 font-bold text-primary hover:underline"
+              >
+                Add boy →
+              </button>
+            </div>
+          ) : (
+            <div className="mt-2 flex gap-2">
+              <Select value={selectedBoyId} onValueChange={setSelectedBoyId}>
+                <SelectTrigger className="h-10 min-w-0 flex-1 rounded-xl bg-card text-xs [&>span]:truncate">
+                  <SelectValue placeholder="Choose Delivery Boy…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {activeBoys.map((boy) => (
+                    <SelectItem key={boy.userId} value={boy.userId}>
+                      {boy.name}
+                      {boy.phone ? ` · ${boy.phone}` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button
+                type="button"
+                size="sm"
+                disabled={!selectedBoyId || updating || busy}
+                onClick={() => void onAssignBoy(order, selectedBoyId)}
+                className="h-10 shrink-0 rounded-full bg-brand px-3.5 text-xs font-bold text-primary-foreground"
+              >
+                {assignment ? "Reassign" : "Assign"}
+              </Button>
+            </div>
+          )}
         </div>
       )}
 

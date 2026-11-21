@@ -1,6 +1,7 @@
 import type { CoinTopupRequest } from "@/lib/coins";
+import type { DeliveryPayoutRequest } from "@/lib/delivery-boy";
 
-/** Orders & coin requests that should keep the admin siren ringing: recent and unacknowledged. */
+/** Orders, coin requests, and delivery payout requests that should keep the admin siren ringing. */
 export const SIREN_STATUSES = ["pending", "payment_review"];
 export const SIREN_WINDOW_MS = 2 * 60 * 60 * 1000;
 
@@ -25,5 +26,17 @@ export function ringingCoinRequestIds(
     .filter((r) => r.status === "pending")
     .filter((r) => now - new Date(r.createdAt).getTime() <= SIREN_WINDOW_MS)
     .filter((r) => !acknowledged.has(`coin:${r.id}`))
+    .map((r) => r.id);
+}
+
+export function ringingPayoutIds(
+  payoutRequests: DeliveryPayoutRequest[],
+  acknowledged: Set<string>,
+  now = Date.now(),
+): string[] {
+  return payoutRequests
+    .filter((r) => r.status === "pending")
+    .filter((r) => now - new Date(r.createdAt).getTime() <= SIREN_WINDOW_MS)
+    .filter((r) => !acknowledged.has(`payout:${r.id}`))
     .map((r) => r.id);
 }
