@@ -82,6 +82,11 @@ function Orders() {
             {(data ?? []).map((o) => {
               const items = (o.cart_items as { name: string; qty: number }[]) ?? [];
               const coinUsage = wallet.coinUsageForOrder(o.id);
+              const paidFullyWithCoins = Boolean(
+                coinUsage && coinUsage.coinsUsed > 0 && coinUsage.payableAmount === 0,
+              );
+              const displayStatus =
+                paidFullyWithCoins && o.status === "payment_review" ? "accepted" : o.status;
               return (
                 <li key={o.id}>
                   <Link
@@ -96,7 +101,7 @@ function Orders() {
                         </p>
                         <p className="mt-1 text-xs text-muted-foreground">
                           #{o.id.slice(0, 8)} · {new Date(o.created_at).toLocaleString()} ·{" "}
-                          {coinUsage?.payableAmount === 0 ? "Campu Coins" : o.payment_method}
+                          {paidFullyWithCoins ? "Campu Coins" : o.payment_method}
                         </p>
                         {o.delivery_type === "sunday_tuesday" && o.delivery_date && (
                           <p className="mt-1 text-xs font-semibold text-primary">
@@ -119,15 +124,15 @@ function Orders() {
                       <span
                         className={cn(
                           "mt-3 inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-bold",
-                          statusTone(o.status),
+                          statusTone(displayStatus),
                         )}
                       >
-                        {o.status === "delivered" && (
+                        {displayStatus === "delivered" && (
                           <span className="grid h-4 w-4 place-items-center rounded-full bg-success text-success-foreground">
                             <Check className="h-3 w-3" strokeWidth={3} />
                           </span>
                         )}
-                        {STATUS_LABELS[o.status]}
+                        {STATUS_LABELS[displayStatus]}
                       </span>
                     </div>
                   </Link>

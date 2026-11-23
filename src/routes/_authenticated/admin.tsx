@@ -38,6 +38,7 @@ import { notifyBroadcast, updateOrderWithPush } from "@/lib/push.functions";
 import { brandsQuery, categoriesQuery, productsQuery, settingsQuery, subcategoriesQuery } from "@/lib/queries";
 import { type OrderReplacement } from "@/lib/replacements";
 import { CatalogHierarchyManager } from "@/components/admin/CatalogHierarchyManager";
+import { AdminProfitStats, adminAccountingQuery } from "@/components/admin/AdminProfitStats";
 import { CoinRequests, coinAdminQuery, loadAndSyncAdminCoins } from "@/components/admin/CoinRequests";
 import { DeliveryBoysManager } from "@/components/admin/DeliveryBoysManager";
 import { OrderReplacementManager } from "@/components/admin/OrderReplacementManager";
@@ -47,6 +48,14 @@ import {
   deliveryBoyAdminQuery,
   loadAndSyncDeliveryBoyAdmin,
 } from "@/components/delivery/DeliveryBoySiren";
+import {
+  ADMIN_ACCOUNTING_KEY,
+  emptyAdminAccounting,
+  parseAdminAccounting,
+  roundPositiveMoney,
+  roundSignedMoney,
+  type AdminAccountingV1,
+} from "@/lib/admin-accounting";
 import { COIN_LEDGER_SETTING_KEY, applyOrderCoinRefundToLedger, type CoinOrderUsage } from "@/lib/coins";
 import {
   DELIVERY_BOY_STATE_KEY,
@@ -61,6 +70,10 @@ import { useRoles, useSession } from "@/lib/session";
 import { QR_BUCKET } from "@/lib/upi";
 import { catalogReference, removeCatalogImage, uploadCatalogImage } from "@/lib/catalog-media";
 import { cn } from "@/lib/utils";
+
+// Unused icon imports cleanup note: keep Lucide icons used in tabs/orders
+void IndianRupee;
+void TriangleAlert;
 
 const ADMIN_TABS = new Set(["dashboard", "queue", "orders", "delivery", "stock", "vip", "coins", "blast", "settings"]);
 
@@ -154,6 +167,11 @@ function Admin() {
     ...deliveryBoyAdminQuery,
     enabled: Boolean(isStaff),
     refetchInterval: 8_000,
+  });
+
+  const accountingAdmin = useQuery({
+    ...adminAccountingQuery,
+    enabled: Boolean(isStaff),
   });
 
   const orders = useQuery({
@@ -342,9 +360,12 @@ function Admin() {
       return;
     }
     setBusyOrderId(order.id);
+    let remoteResult: { telegramSent?: boolean; telegramReason?: string } | null = null;
+    let usedFallback = false;
     try {
-      await assignDeliveryBoyRemote({ data: { orderId: order.id, boyId } });
+      remoteResult = await assignDeliveryBoyRemote({ data: { orderId: order.id, boyId } });
     } catch {
+      usedFallback = true;
       // Direct Admin RLS fallback when server env vars are absent on preview host
       try {
         const latest = await loadAndSyncDeliveryBoyAdmin();
@@ -390,7 +411,22 @@ function Admin() {
     }
     setBusyOrderId(null);
     const chosenBoy = (deliveryAdmin.data?.state.boys ?? []).find((b) => b.userId === boyId);
-    toast.success(`Assigned to ${chosenBoy?.name ?? "Delivery Boy"} — notification sent!`);
+    const boyName = chosenBoy?.name ?? "Delivery Boy";
+    if (!usedFallback && remoteResult?.telegramSent) {
+      toast.success(`Assigned to ${boyName} — Push & Telegram sent!`);
+    } else if (!usedFallback && chosenBoy?.telegramChatId && remoteResult?.telegramReason) {
+      toast.warning(
+        `Assigned to ${boyName} (In-app siren active; Telegram: ${remoteResult.telegramReason})`,
+        { duration: 7000 },
+      );
+    } else if (usedFallback && chosenBoy?.telegramChatId) {
+      toast.warning(
+        `Assigned to ${boyName} (Saved via fallback — republish host to dispatch Telegram alerts)`,
+        { duration: 6000 },
+      );
+    } else {
+      toast.success(`Assigned to ${boyName} — in-app alert sent!`);
+    }
     void queryClient.invalidateQueries({ queryKey: ["admin-delivery-boy"] });
     void queryClient.invalidateQueries({ queryKey: ["app_settings"] });
   }
@@ -468,13 +504,26 @@ function Admin() {
     orderDeliveryFilter === "all"
       ? all
       : all.filter((o) => (orderDeliveryFilter === "sunday_tuesday" ? isOrderSpecial(o) : isOrderQuick(o)));
-  const queue = all.filter((o) => o.status === "payment_review");
-  const pending = modeFilteredOrders.filter((o) => ["pending", "payment_review"].includes(o.status));
-  const active = modeFilteredOrders.filter((o) => ["accepted", "out_for_delivery"].includes(o.status));
+  const coinUsages = coinAdmin.data?.ledger.orderUsages ?? {};
+  const isFullCoinOrder = (o: OrderRow) => {
+    const usage = coinUsages[o.id];
+    return Boolean(usage && usage.coinsUsed > 0 && usage.payableAmount === 0);
+  };
+  const queue = all.filter((o) => o.status === "payment_review" && !isFullCoinOrder(o));
+  const pending = modeFilteredOrders.filter(
+    (o) =>
+      o.status === "pending" ||
+      (o.status === "payment_review" && !isFullCoinOrder(o)),
+  );
+  const active = modeFilteredOrders.filter(
+    (o) =>
+      o.status === "accepted" ||
+      o.status === "out_for_delivery" ||
+      (o.status === "payment_review" && isFullCoinOrder(o)),
+  );
   const completed = modeFilteredOrders.filter((o) => o.status === "delivered");
   const cancelled = modeFilteredOrders.filter((o) => o.status === "cancelled");
   const pendingVipCount = (vipRequests.data ?? []).filter((r) => r.status === "pending").length;
-  const coinUsages = coinAdmin.data?.ledger.orderUsages ?? {};
   const pendingCoinCount = (coinAdmin.data?.ledger.requests ?? []).filter((r) => r.status === "pending").length;
   const deliveryBoys = deliveryAdmin.data?.state.boys ?? [];
   const activeDeliveryBoys = deliveryBoys.filter((b) => b.active);
@@ -564,7 +613,13 @@ function Admin() {
           </TabsList>
 
           <TabsContent value="dashboard" className="mt-4">
-            <Dashboard orders={all} products={products.data ?? []} />
+            <AdminProfitStats
+              orders={all}
+              products={products.data ?? []}
+              assignmentsByOrder={assignmentsByOrder}
+              accounting={accountingAdmin.data ?? emptyAdminAccounting()}
+              onJumpToInventory={() => onTabChange("stock")}
+            />
           </TabsContent>
 
           <TabsContent value="queue" className="mt-4 space-y-3">
@@ -736,7 +791,11 @@ function Admin() {
           </TabsContent>
 
           <TabsContent value="stock" className="mt-4 min-w-0 max-w-full">
-            <Inventory products={products.data ?? []} onToggle={toggleStock} />
+            <Inventory
+              products={products.data ?? []}
+              accounting={accountingAdmin.data ?? emptyAdminAccounting()}
+              onToggle={toggleStock}
+            />
           </TabsContent>
 
           <TabsContent value="vip" className="mt-4">
@@ -857,8 +916,14 @@ function ActiveOrder({
   const [otp, setOtp] = useState("");
   const [busy, setBusy] = useState(false);
   const [selectedBoyId, setSelectedBoyId] = useState(assignment?.boyId ?? "");
-  const next = NEXT_ACTION[order.status];
-  const isVerifiedForDelivery = order.status === "accepted" || order.status === "out_for_delivery";
+  const isFullCoins = Boolean(
+    coinUsage && coinUsage.coinsUsed > 0 && coinUsage.payableAmount === 0,
+  );
+  const effectiveStatus =
+    isFullCoins && order.status === "payment_review" ? "accepted" : order.status;
+  const next = NEXT_ACTION[effectiveStatus];
+  const isVerifiedForDelivery =
+    effectiveStatus === "accepted" || effectiveStatus === "out_for_delivery";
 
   useEffect(() => {
     if (assignment?.boyId) setSelectedBoyId(assignment.boyId);
@@ -866,9 +931,17 @@ function ActiveOrder({
 
   return (
     <div className="rounded-3xl border border-border bg-card p-4 shadow-card">
-      <OrderCard order={order} name={name} coinUsage={coinUsage} />
+      <OrderCard
+        order={
+          effectiveStatus !== order.status
+            ? { ...order, status: effectiveStatus }
+            : order
+        }
+        name={name}
+        coinUsage={coinUsage}
+      />
 
-      {order.status === "payment_review" && order.utr_number && coinUsage?.payableAmount !== 0 && (
+      {effectiveStatus === "payment_review" && order.utr_number && coinUsage?.payableAmount !== 0 && (
         <div className="mt-3 rounded-2xl bg-muted/50 px-3 py-2">
           <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
             Submitted UTR
@@ -879,7 +952,7 @@ function ActiveOrder({
 
       {!isVerifiedForDelivery && (
         <p className="mt-3 rounded-2xl border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-muted-foreground">
-          {order.status === "payment_review"
+          {effectiveStatus === "payment_review"
             ? "Verify payment first before assigning this order to a Delivery Boy."
             : "Accept this order first to assign a Delivery Boy."}
         </p>
@@ -991,7 +1064,7 @@ function ActiveOrder({
           variant="ghost"
           className="h-10 rounded-full text-destructive"
         >
-          {order.status === "payment_review" ? "Reject" : "Cancel"}
+          {effectiveStatus === "payment_review" ? "Reject" : "Cancel"}
         </Button>
       </div>
     </div>
@@ -1101,69 +1174,6 @@ function CancelledOrder({
   );
 }
 
-function Dashboard({
-  orders,
-  products,
-}: {
-  orders: OrderRow[];
-  products: { id: string; name: string }[];
-}) {
-  const today = new Date().toDateString();
-  const isToday = (d: string) => new Date(d).toDateString() === today;
-  const delivered = orders.filter((o) => o.status === "delivered");
-  const totalRevenue = delivered.reduce((s, o) => s + Number(o.total), 0);
-  const todayRevenue = delivered
-    .filter((o) => isToday(o.created_at))
-    .reduce((s, o) => s + Number(o.total), 0);
-  const ordersToday = orders.filter((o) => isToday(o.created_at)).length;
-  const cancelsToday = orders.filter(
-    (o) => o.status === "cancelled" && isToday(o.cancelled_at ?? o.created_at),
-  ).length;
-
-  const low = products.filter(
-    (p) => ((p as { stock_quantity?: number }).stock_quantity ?? 99) < 5,
-  );
-
-  return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Stat label="Total revenue" value={rupees(totalRevenue)} />
-        <Stat label="Today's revenue" value={rupees(todayRevenue)} />
-        <Stat label="Orders today" value={String(ordersToday)} />
-        <Stat label="Cancellations today" value={String(cancelsToday)} />
-      </div>
-      {low.length > 0 && (
-        <div className="rounded-3xl border border-warning/50 bg-warning/10 p-4">
-          <p className="flex items-center gap-2 font-display text-sm font-bold">
-            <TriangleAlert className="h-4 w-4" /> Low stock
-          </p>
-          <ul className="mt-2 space-y-1 text-sm">
-            {low.map((p) => (
-              <li key={p.id} className="flex justify-between">
-                <span>{p.name}</span>
-                <span className="font-semibold">
-                  {(p as { stock_quantity?: number }).stock_quantity} left
-                </span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-3xl border border-border bg-card p-4 shadow-card">
-      <p className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-        <IndianRupee className="h-3 w-3" /> {label}
-      </p>
-      <p className="mt-1 font-display text-2xl font-extrabold">{value}</p>
-    </div>
-  );
-}
-
 type ProductRow = {
   id: string;
   name: string;
@@ -1183,9 +1193,11 @@ const NONE = "none";
 
 function Inventory({
   products,
+  accounting,
   onToggle,
 }: {
   products: ProductRow[];
+  accounting: AdminAccountingV1;
   onToggle: (id: string, inStock: boolean) => Promise<void>;
 }) {
   const queryClient = useQueryClient();
@@ -1195,7 +1207,16 @@ function Inventory({
   const [section, setSection] = useState<"products" | "categories">("products");
   const [editing, setEditing] = useState<ProductRow | null>(null);
   const [adding, setAdding] = useState(false);
-  const [form, setForm] = useState({ name: "", description: "", category_id: "", subcategory_id: "", brand_id: "", price: "", stock: "10" });
+  const [form, setForm] = useState({
+    name: "",
+    description: "",
+    category_id: "",
+    subcategory_id: "",
+    brand_id: "",
+    originalPrice: "",
+    price: "",
+    stock: "10",
+  });
   const subcategoryOptions = allSubcategories.filter((s) => s.category_id === form.category_id);
   const brandOptions = allBrands.filter((b) => b.subcategory_id === form.subcategory_id);
   const [deliveryTypes, setDeliveryTypes] = useState<string[]>(["quick"]);
@@ -1211,7 +1232,16 @@ function Inventory({
   function openAdd() {
     setEditing(null);
     setPhoto(null);
-    setForm({ name: "", description: "", category_id: categories.data?.[0]?.id ?? "", subcategory_id: "", brand_id: "", price: "", stock: "10" });
+    setForm({
+      name: "",
+      description: "",
+      category_id: categories.data?.[0]?.id ?? "",
+      subcategory_id: "",
+      brand_id: "",
+      originalPrice: "",
+      price: "",
+      stock: "10",
+    });
     setDeliveryTypes(["quick"]);
     setAdding(true);
   }
@@ -1224,15 +1254,67 @@ function Inventory({
     setAdding(false);
     setEditing(product);
     setPhoto(null);
-    setForm({ name: product.name, description: product.description ?? "", category_id: product.category_id ?? "", subcategory_id: product.subcategory_id ?? "", brand_id: product.brand_id ?? "", price: String(product.price), stock: String(product.stock_quantity) });
+    const savedCost = accounting.productCosts[product.id]?.originalPrice;
+    setForm({
+      name: product.name,
+      description: product.description ?? "",
+      category_id: product.category_id ?? "",
+      subcategory_id: product.subcategory_id ?? "",
+      brand_id: product.brand_id ?? "",
+      originalPrice: savedCost !== undefined ? String(savedCost) : "",
+      price: String(product.price),
+      stock: String(product.stock_quantity),
+    });
     setDeliveryTypes(product.delivery_types?.length ? product.delivery_types : ["quick"]);
+  }
+
+  async function persistProductCost(productId: string, originalPriceVal: number | null) {
+    const { data: latestRow } = await supabase
+      .from("app_settings")
+      .select("value")
+      .eq("key", ADMIN_ACCOUNTING_KEY)
+      .maybeSingle();
+    const latest = parseAdminAccounting(latestRow?.value);
+    const nextCosts = { ...latest.productCosts };
+    if (originalPriceVal === null) {
+      delete nextCosts[productId];
+    } else {
+      nextCosts[productId] = {
+        originalPrice: roundPositiveMoney(originalPriceVal),
+        updatedAt: new Date().toISOString(),
+      };
+    }
+    const nextState: AdminAccountingV1 = {
+      ...latest,
+      productCosts: nextCosts,
+      updatedAt: new Date().toISOString(),
+    };
+    const { error } = await supabase
+      .from("app_settings")
+      .upsert(
+        { key: ADMIN_ACCOUNTING_KEY, value: JSON.stringify(nextState) },
+        { onConflict: "key" },
+      );
+    if (error) throw error;
+    void queryClient.invalidateQueries({ queryKey: ["admin-accounting"] });
   }
 
   async function saveProduct() {
     const price = Number(form.price);
     const stock = Number(form.stock);
-    if (!form.name.trim() || !Number.isFinite(price) || price < 0 || !Number.isInteger(stock) || stock < 0) {
-      toast.error("Enter a product name, valid price, and whole-number stock quantity.");
+    const hasOriginalInput = form.originalPrice.trim().length > 0;
+    const originalPrice = hasOriginalInput ? Number(form.originalPrice) : null;
+    if (
+      !form.name.trim() ||
+      !Number.isFinite(price) ||
+      price < 0 ||
+      !Number.isInteger(stock) ||
+      stock < 0 ||
+      (originalPrice !== null && (!Number.isFinite(originalPrice) || originalPrice < 0))
+    ) {
+      toast.error(
+        "Enter a product name, valid Display & Original price, and whole-number stock quantity.",
+      );
       return;
     }
     if (deliveryTypes.length === 0) {
@@ -1255,10 +1337,22 @@ function Inventory({
         delivery_types: deliveryTypes,
         ...(uploadedPath ? { image_path: uploadedPath, image_url: catalogReference(uploadedPath) } : {}),
       };
-      const result = editing
-        ? await supabase.from("products").update(values).eq("id", editing.id)
-        : await supabase.from("products").insert(values);
-      if (result.error) throw result.error;
+      let savedProductId: string | null = editing?.id ?? null;
+      if (editing) {
+        const { error } = await supabase.from("products").update(values).eq("id", editing.id);
+        if (error) throw error;
+      } else {
+        const { data: inserted, error } = await supabase
+          .from("products")
+          .insert(values)
+          .select("id")
+          .single();
+        if (error) throw error;
+        savedProductId = inserted?.id ?? null;
+      }
+      if (savedProductId) {
+        await persistProductCost(savedProductId, originalPrice);
+      }
       if (uploadedPath && editing?.image_path) await removeCatalogImage(editing.image_path).catch(() => undefined);
       toast.success(editing ? "Product updated" : "Product added");
       closeEditor();
@@ -1376,13 +1470,29 @@ function Inventory({
             </div>
           </>
         )}
-        <div className="grid min-w-0 grid-cols-2 gap-2">
+        <div className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-3">
           <div className="min-w-0">
-            <label className="mb-1 block text-xs font-medium" htmlFor="product-price">Price</label>
+            <label className="mb-1 block text-xs font-medium" htmlFor="product-original-price">
+              Original Price (Shop Cost ₹)
+            </label>
+            <Input
+              id="product-original-price"
+              value={form.originalPrice}
+              onChange={(e) => setForm((current) => ({ ...current, originalPrice: e.target.value }))}
+              placeholder="Cost from shop"
+              inputMode="decimal"
+              className="h-11 w-full min-w-0 rounded-xl bg-card"
+            />
+          </div>
+          <div className="min-w-0">
+            <label className="mb-1 block text-xs font-medium" htmlFor="product-price">
+              Display Price (₹)
+            </label>
             <Input
               id="product-price"
               value={form.price}
               onChange={(e) => setForm((current) => ({ ...current, price: e.target.value }))}
+              placeholder="Selling price"
               inputMode="decimal"
               className="h-11 w-full min-w-0 rounded-xl bg-card"
             />
@@ -1398,6 +1508,21 @@ function Inventory({
             />
           </div>
         </div>
+        {form.originalPrice.trim() !== "" && form.price.trim() !== "" && Number.isFinite(Number(form.price)) && Number.isFinite(Number(form.originalPrice)) && (
+          <p className="rounded-xl border border-border/70 bg-card px-3 py-2 text-xs font-semibold text-muted-foreground tabular-nums">
+            Profit per unit:{" "}
+            <strong
+              className={
+                roundSignedMoney(Number(form.price) - Number(form.originalPrice)) >= 0
+                  ? "text-success"
+                  : "text-destructive"
+              }
+            >
+              {roundSignedMoney(Number(form.price) - Number(form.originalPrice)) >= 0 ? "+" : "-"}
+              {rupees(Math.abs(roundSignedMoney(Number(form.price) - Number(form.originalPrice))))}
+            </strong>
+          </p>
+        )}
         <label className="flex w-full min-w-0 cursor-pointer items-center gap-2 overflow-hidden rounded-xl border border-input bg-card px-3 py-3 text-sm font-medium">
           <Upload className="h-4 w-4 shrink-0" />
           <span className="min-w-0 flex-1 truncate">
@@ -1470,6 +1595,9 @@ function Inventory({
           <div className="grid min-w-0 grid-cols-1 gap-3 md:grid-cols-2">
           {products.map((p) => {
             const isEditingThis = editing?.id === p.id;
+            const origPrice = accounting.productCosts[p.id]?.originalPrice;
+            const unitProfit =
+              origPrice !== undefined ? roundSignedMoney(Number(p.price) - origPrice) : null;
             return (
               <div
                 key={p.id}
@@ -1486,7 +1614,9 @@ function Inventory({
                   )}
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-semibold">{p.name}</p>
-                    <p className="text-xs text-muted-foreground">{rupees(p.price)}</p>
+                    <p className="text-xs text-muted-foreground tabular-nums">
+                      Display: <strong className="text-foreground">{rupees(p.price)}</strong>
+                    </p>
                   </div>
                   <div className="flex shrink-0 items-center gap-1.5">
                     <Button
@@ -1511,13 +1641,30 @@ function Inventory({
                     </Button>
                   </div>
                 </div>
-                <div className="mt-2 flex items-center gap-2">
-                  <span className="text-xs text-muted-foreground">{p.stock_quantity} in stock</span>
-                  {(p.stock_quantity ?? 0) < 5 && (
-                    <span className="ml-auto rounded-full bg-warning/20 px-2 py-1 text-[11px] font-bold text-warning-foreground">
-                      Low stock
-                    </span>
-                  )}
+                <div className="mt-2.5 grid grid-cols-3 gap-1.5 rounded-2xl border border-border/70 bg-muted/35 px-2.5 py-2 text-[11px] tabular-nums">
+                  <div className="min-w-0">
+                    <span className="block text-[10px] text-muted-foreground">Original Cost</span>
+                    <strong className="truncate text-foreground">
+                      {origPrice !== undefined ? rupees(origPrice) : "Not set"}
+                    </strong>
+                  </div>
+                  <div className="min-w-0">
+                    <span className="block text-[10px] text-muted-foreground">Profit/unit</span>
+                    {unitProfit === null ? (
+                      <span className="text-muted-foreground">—</span>
+                    ) : (
+                      <strong className={unitProfit >= 0 ? "text-success" : "text-destructive"}>
+                        {unitProfit >= 0 ? "+" : "-"}
+                        {rupees(Math.abs(unitProfit))}
+                      </strong>
+                    )}
+                  </div>
+                  <div className="min-w-0 text-right">
+                    <span className="block text-[10px] text-muted-foreground">Stock</span>
+                    <strong className={(p.stock_quantity ?? 0) < 5 ? "text-warning-foreground" : "text-foreground"}>
+                      {p.stock_quantity} left
+                    </strong>
+                  </div>
                 </div>
 
                 {isEditingThis && <div className="mt-3 min-w-0 overflow-hidden border-t border-border/70 pt-3">{renderProductEditor()}</div>}

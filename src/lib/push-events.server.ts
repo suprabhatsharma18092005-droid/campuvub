@@ -57,6 +57,11 @@ export const pushEventSchema = z.discriminatedUnion('type', [
     status: z.enum(['paid', 'rejected']),
     method: z.enum(['UPI', 'COD']),
   }),
+  z.object({
+    type: z.literal('telegram_test'),
+    chatId: z.string().trim().min(1).max(120),
+    boyName: z.string().trim().max(80).optional(),
+  }),
   z.object({ type: z.literal('test') }),
 ]);
 export type PushEvent = z.infer<typeof pushEventSchema>;
@@ -153,23 +158,97 @@ export async function runPushEvent(event: PushEvent, ctx: EventContext): Promise
     }
     case 'delivery_assigned': {
       if (!(await isAdmin(ctx))) throw new PushForbiddenError('Forbidden');
-      return delivery.sendDeliveryAssignedAlert({
-        boyUserId: event.boyUserId,
-        orderId: event.orderId,
-        deliveryAddress: event.deliveryAddress,
-        paymentMethod: event.paymentMethod,
-        paidWithCoins: event.paidWithCoins,
-        codCollectAmount: event.codCollectAmount,
-      });
+      const [pushRes, tgRes] = await Promise.all([
+        delivery.sendDeliveryAssignedAlert({
+          boyUserId: event.boyUserId,
+          orderId: event.orderId,
+          deliveryAddress: event.deliveryAddress,
+          paymentMethod: event.paymentMethod,
+          paidWithCoins: event.paidWithCoins,
+          codCollectAmount: event.codCollectAmount,
+        }),
+        (async () => {
+          try {
+            const { sendTelegramDeliveryBoyAlert } = await import('./telegram.server');
+            const { DELIVERY_BOY_STATE_KEY, parseDeliveryBoyState } = await import('./delivery-boy');
+            const dbClient = process.env['SUPABASE_SERVICE_ROLE_KEY']
+              ? (await import('@/integrations/supabase/client.server')).supabaseAdmin
+              : ctx.supabase;
+            const [{ data: stateRow }, { data: ord }] = await Promise.all([
+              dbClient.from('app_settings').select('value').eq('key', DELIVERY_BOY_STATE_KEY).maybeSingle(),
+              dbClient
+                .from('orders')
+                .select('id, student_id, cart_items, delivery_address, phone_number, payment_method')
+                .eq('id', event.orderId)
+                .maybeSingle(),
+            ]);
+            const boyState = parseDeliveryBoyState(stateRow?.value);
+            const boy = boyState.boys.find((b) => b.userId === event.boyUserId);
+            const snap = boyState.assignments.find((a) => a.orderId === event.orderId);
+            let customerName = snap?.customerName ?? 'Student';
+            if (!snap && ord?.student_id) {
+              const { data: prof } = await dbClient
+                .from('profiles')
+                .select('full_name')
+                .eq('id', ord.student_id)
+                .maybeSingle();
+              customerName = prof?.full_name?.trim() || 'Student';
+            }
+            const rawItems = snap?.items ?? (Array.isArray(ord?.cart_items) ? ord.cart_items : []);
+            const items = (rawItems as Array<{ name?: string; qty?: number; price?: number }>).map(
+              (it) => ({
+                name: it.name?.trim() || 'Item',
+                qty: Math.max(1, Math.floor(Number(it.qty) || 1)),
+                price: Number(it.price) || 0,
+              }),
+            );
+            return await sendTelegramDeliveryBoyAlert({
+              boyName: boy?.name ?? snap?.boyName ?? 'Delivery Partner',
+              boyChatId: boy?.telegramChatId ?? null,
+              orderId: event.orderId,
+              customerName,
+              deliveryAddress: ord?.delivery_address?.trim() || event.deliveryAddress,
+              phoneNumber: ord?.phone_number ?? snap?.phoneNumber ?? null,
+              items,
+              paymentMethod: event.paymentMethod,
+              paidWithCoins: event.paidWithCoins,
+              codCollectAmount: event.codCollectAmount,
+            });
+          } catch (err) {
+            return { ok: false, chatId: null, error: err instanceof Error ? err.message : 'Telegram error' };
+          }
+        })(),
+      ]);
+      return {
+        ...pushRes,
+        ...(tgRes && !tgRes.ok && tgRes.error ? { error: tgRes.error } : {}),
+      };
     }
     case 'delivery_payout_request': {
-      return delivery.sendDeliveryPayoutRequestAlert({
-        boyName: event.boyName,
-        amount: event.amount,
-        method: event.method,
-        upiId: event.upiId,
-        bankingName: event.bankingName,
-      });
+      const [pushRes] = await Promise.all([
+        delivery.sendDeliveryPayoutRequestAlert({
+          boyName: event.boyName,
+          amount: event.amount,
+          method: event.method,
+          upiId: event.upiId,
+          bankingName: event.bankingName,
+        }),
+        (async () => {
+          try {
+            const { sendTelegramPayoutAlert } = await import('./telegram.server');
+            await sendTelegramPayoutAlert({
+              boyName: event.boyName,
+              amount: event.amount,
+              method: event.method,
+              upiId: event.upiId,
+              bankingName: event.bankingName,
+            });
+          } catch {
+            // Non-fatal
+          }
+        })(),
+      ]);
+      return pushRes;
     }
     case 'delivery_payout_status': {
       if (!(await isAdmin(ctx))) throw new PushForbiddenError('Forbidden');
@@ -179,6 +258,12 @@ export async function runPushEvent(event: PushEvent, ctx: EventContext): Promise
         status: event.status,
         method: event.method,
       });
+    }
+    case 'telegram_test': {
+      if (!(await isAdmin(ctx))) throw new PushForbiddenError('Forbidden');
+      const { sendTelegramTestAlert } = await import('./telegram.server');
+      const tg = await sendTelegramTestAlert(event.chatId, event.boyName);
+      return { sent: tg.ok ? 1 : 0, ...(tg.error ? { error: tg.error } : {}) };
     }
     case 'test': {
       if (!(await isAdmin(ctx))) throw new PushForbiddenError('Forbidden');
@@ -196,9 +281,13 @@ type ForwardOptions = { base?: string | undefined; fetchImpl?: typeof fetch };
 const LOCAL_ONLY_EVENT_TYPES = new Set([
   'coin_request',
   'coin_status',
+]);
+
+const REMOTE_FORWARD_TYPES = new Set([
   'delivery_assigned',
   'delivery_payout_request',
   'delivery_payout_status',
+  'telegram_test',
 ]);
 
 /**
@@ -216,14 +305,18 @@ export async function forwardPushEvent(event: PushEvent, auth: string | null | u
   });
   if (!res.ok) {
     const errBody = (await res.text()).slice(0, 200);
-    if (res.status === 400 && LOCAL_ONLY_EVENT_TYPES.has(event.type)) {
-      return { sent: 0 };
+    if (res.status === 400 && (LOCAL_ONLY_EVENT_TYPES.has(event.type) || REMOTE_FORWARD_TYPES.has(event.type))) {
+      return { sent: 0, error: 'Notification host needs republish to support this event.' };
     }
     console.error(`Push event hand-off failed [${res.status}]: ${errBody}`);
     return { sent: 0, error: `Notification host responded ${res.status}` };
   }
   const body = (await res.json()) as Partial<PushEventResult>;
-  return { sent: Number(body.sent) || 0, ...(typeof body.devices === 'number' ? { devices: body.devices } : {}) };
+  return {
+    sent: Number(body.sent) || 0,
+    ...(typeof body.devices === 'number' ? { devices: body.devices } : {}),
+    ...(typeof body.error === 'string' && body.error ? { error: body.error } : {}),
+  };
 }
 
 /** Send here when possible, otherwise hand the event to the trusted host. Never throws. */

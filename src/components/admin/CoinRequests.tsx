@@ -25,6 +25,7 @@ import { rupees } from "@/lib/format";
 export type AdminCoinData = {
   ledger: CoinLedgerV1;
   profiles: Record<string, { name: string; phone: string | null }>;
+  autoAcceptedOrderIds: string[];
 };
 
 export async function loadAndSyncAdminCoins(): Promise<AdminCoinData> {
@@ -56,6 +57,30 @@ export async function loadAndSyncAdminCoins(): Promise<AdminCoinData> {
       );
   }
 
+  // Fallback auto-acceptance for hosts without SUPABASE_SERVICE_ROLE_KEY:
+  // if a 100% Campu Coins order is still in payment_review, promote it to accepted immediately.
+  const fullCoinReviewIds = (ordRes.data ?? [])
+    .filter((o) => {
+      if (o.status !== "payment_review") return false;
+      const usage = ledger.orderUsages[o.id];
+      return Boolean(usage && usage.coinsUsed > 0 && usage.payableAmount === 0);
+    })
+    .map((o) => o.id);
+
+  const autoAcceptedOrderIds: string[] = [];
+  if (fullCoinReviewIds.length > 0) {
+    const acceptedAt = new Date().toISOString();
+    const { data: promoted } = await supabase
+      .from("orders")
+      .update({ status: "accepted", accepted_at: acceptedAt })
+      .in("id", fullCoinReviewIds)
+      .eq("status", "payment_review")
+      .select("id");
+    for (const row of promoted ?? []) {
+      autoAcceptedOrderIds.push(row.id);
+    }
+  }
+
   const profiles = Object.fromEntries(
     (profRes.data ?? []).map((p) => [
       p.id,
@@ -63,7 +88,7 @@ export async function loadAndSyncAdminCoins(): Promise<AdminCoinData> {
     ]),
   );
 
-  return { ledger, profiles };
+  return { ledger, profiles, autoAcceptedOrderIds };
 }
 
 export const coinAdminQuery = {

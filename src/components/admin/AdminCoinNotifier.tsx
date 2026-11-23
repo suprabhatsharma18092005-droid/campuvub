@@ -58,6 +58,12 @@ export function AdminCoinNotifier() {
     if (seenRef.current === null) {
       seenRef.current = loadSeenSet(ADMIN_SEEN_COIN_ALERTS_KEY);
     }
+    const autoAcceptedIds = q.data?.autoAcceptedOrderIds ?? [];
+    if (autoAcceptedIds.length > 0) {
+      void queryClient.invalidateQueries({ queryKey: ["admin-orders"] });
+      void queryClient.invalidateQueries({ queryKey: ["orders"] });
+    }
+
     const requests = q.data?.ledger.requests;
     if (!requests) return;
 

@@ -22,9 +22,15 @@ export const TRACK_STEPS = [
 
 export const UPI_STEPS = ["pending", "payment_review", "accepted", "out_for_delivery", "delivered"] as const;
 export const COD_STEPS = ["pending", "accepted", "out_for_delivery", "delivered"] as const;
+export const COINS_STEPS = ["pending", "accepted", "out_for_delivery", "delivered"] as const;
 
 /** Steps for this order's payment flow, plus the index of its real current status. */
-export function trackSteps(paymentMethod: string, status: string) {
+export function trackSteps(paymentMethod: string, status: string, paidFullyWithCoins = false) {
+  if (paidFullyWithCoins) {
+    const effective = status === "payment_review" ? "accepted" : status;
+    const index = COINS_STEPS.indexOf(effective as (typeof COINS_STEPS)[number]);
+    return { steps: COINS_STEPS, currentIndex: index === -1 ? 1 : index };
+  }
   const steps: readonly string[] = paymentMethod === "UPI" ? UPI_STEPS : COD_STEPS;
   const index = steps.indexOf(status);
   // A UPI order always starts at payment_review, so "Placed" is already done.

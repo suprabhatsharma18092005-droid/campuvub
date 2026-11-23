@@ -42,6 +42,7 @@ import {
 import {
   lookupProfileByEmailForDelivery,
   reviewDeliveryPayoutRequest,
+  testDeliveryBoyTelegram,
 } from "@/lib/delivery-boy.functions";
 import { rupees } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -51,6 +52,7 @@ export function DeliveryBoysManager() {
   const q = useQuery(deliveryBoyAdminQuery);
   const reviewPayout = useServerFn(reviewDeliveryPayoutRequest);
   const lookupByEmail = useServerFn(lookupProfileByEmailForDelivery);
+  const testTelegramFn = useServerFn(testDeliveryBoyTelegram);
 
   const state = q.data?.state ?? emptyDeliveryBoyState();
   const profiles = q.data?.profiles ?? [];
@@ -72,6 +74,7 @@ export function DeliveryBoysManager() {
   const [busyPayoutId, setBusyPayoutId] = useState<string | null>(null);
   const [editingChatBoyId, setEditingChatBoyId] = useState<string | null>(null);
   const [editingChatValue, setEditingChatValue] = useState("");
+  const [testingChatBoyId, setTestingChatBoyId] = useState<string | null>(null);
 
   const savedRuleMode = q.data?.state.salaryRule.mode;
   const savedDeduction = q.data?.state.salaryRule.deductionAmount;
@@ -257,6 +260,27 @@ export function DeliveryBoysManager() {
       toast.success("Telegram chat ID saved");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not save chat ID");
+    }
+  }
+
+  async function handleTestTelegram(boy: DeliveryBoyProfile) {
+    const chatId = boy.telegramChatId?.trim();
+    if (!chatId) {
+      toast.error("Set the Delivery Boy's numeric Telegram Chat ID first.");
+      return;
+    }
+    setTestingChatBoyId(boy.userId);
+    try {
+      const res = await testTelegramFn({ data: { chatId, boyName: boy.name } });
+      if (res.ok) {
+        toast.success(`Test alert sent to ${boy.name}'s Telegram (${res.chatId ?? chatId})!`);
+      } else {
+        toast.error(res.error || "Could not send test Telegram alert.", { duration: 7000 });
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Telegram test failed");
+    } finally {
+      setTestingChatBoyId(null);
     }
   }
 
@@ -631,9 +655,12 @@ export function DeliveryBoysManager() {
                 id="boy-tg"
                 value={boyTelegramChat}
                 onChange={(e) => setBoyTelegramChat(e.target.value)}
-                placeholder="Defaults to store Telegram"
+                placeholder="Numeric Chat ID (e.g. 123456789)"
                 className="h-11 rounded-xl"
               />
+              <p className="mt-1 text-[10px] text-muted-foreground">
+                Rider must send <code>/start</code> to the bot first.
+              </p>
             </div>
           </div>
 
@@ -767,16 +794,28 @@ export function DeliveryBoysManager() {
                           <Send className="h-3 w-3 shrink-0" />
                           Telegram: {boy.telegramChatId ? boy.telegramChatId : "Store default"}
                         </span>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setEditingChatBoyId(boy.userId);
-                            setEditingChatValue(boy.telegramChatId ?? "");
-                          }}
-                          className="shrink-0 font-bold text-primary hover:underline"
-                        >
-                          Edit Chat ID
-                        </button>
+                        <div className="flex shrink-0 items-center gap-2.5">
+                          {boy.telegramChatId && (
+                            <button
+                              type="button"
+                              disabled={testingChatBoyId === boy.userId}
+                              onClick={() => void handleTestTelegram(boy)}
+                              className="font-bold text-success hover:underline disabled:opacity-50"
+                            >
+                              {testingChatBoyId === boy.userId ? "Sending…" : "Test"}
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingChatBoyId(boy.userId);
+                              setEditingChatValue(boy.telegramChatId ?? "");
+                            }}
+                            className="font-bold text-primary hover:underline"
+                          >
+                            Edit Chat ID
+                          </button>
+                        </div>
                       </>
                     )}
                   </div>

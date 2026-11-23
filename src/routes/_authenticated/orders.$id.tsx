@@ -131,9 +131,13 @@ function OrderDetail() {
   const items =
     (order.cart_items as { id?: string; name: string; qty: number; price: number; image_url?: string | null }[]) ??
     [];
+  const coinUsage = wallet.coinUsageForOrder(order.id);
+  const paidFullyWithCoins = Boolean(
+    coinUsage && coinUsage.coinsUsed > 0 && coinUsage.payableAmount === 0,
+  );
   const cancelled = order.status === "cancelled";
   const delivered = order.status === "delivered";
-  const { steps, currentIndex } = trackSteps(order.payment_method, order.status);
+  const { steps, currentIndex } = trackSteps(order.payment_method, order.status, paidFullyWithCoins);
   const isActive = ["pending", "payment_review", "accepted", "out_for_delivery"].includes(order.status);
   const showPreorderCountdown = isActive && preorderRemaining > 0 && wasPlacedDuringPreorder(
     order.created_at,
@@ -169,9 +173,6 @@ function OrderDetail() {
         new Date(remoteReplacement.updatedAt).getTime())
       ? localReplacement
       : remoteReplacement;
-
-  const coinUsage = wallet.coinUsageForOrder(order.id);
-  const paidFullyWithCoins = Boolean(coinUsage && coinUsage.payableAmount === 0);
 
   async function doCancel() {
     setCancelling(true);
@@ -219,7 +220,8 @@ function OrderDetail() {
         </Link>
         <h1 className="mt-2 font-display text-2xl font-bold">Order #{order.id.slice(0, 8)}</h1>
         <p className="text-sm text-muted-foreground">
-          {new Date(order.created_at).toLocaleString()} · {order.payment_method}
+          {new Date(order.created_at).toLocaleString()} ·{" "}
+          {paidFullyWithCoins ? "Campu Coins" : order.payment_method}
         </p>
         {order.delivery_type === "sunday_tuesday" && order.delivery_date && (
           <p className="mt-1 text-sm font-semibold text-primary">
@@ -310,9 +312,12 @@ function OrderDetail() {
                       </p>
                       {active && step === "payment_review" && (
                         <p className="text-xs text-muted-foreground">
-                          {paidFullyWithCoins
-                            ? `Paid with ${coinUsage?.coinsUsed} Campu Coins — confirming order.`
-                            : `Verifying UTR ${order.utr_number} — usually under 2 minutes.`}
+                          Verifying UTR {order.utr_number} — usually under 2 minutes.
+                        </p>
+                      )}
+                      {active && step === "accepted" && paidFullyWithCoins && (
+                        <p className="text-xs text-success">
+                          Paid with {coinUsage?.coinsUsed} Campu Coins — payment accepted instantly.
                         </p>
                       )}
                     </div>

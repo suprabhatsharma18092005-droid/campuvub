@@ -228,6 +228,9 @@ export const placeOrderWithPush = createServerFn({ method: 'POST' })
       throw new Error(msg);
     }
 
+    const remainingPayable = roundCoinValue(Math.max(0, data.total - coinsUsed));
+    const paidFullyByCoins = coinsUsed > 0 && remainingPayable === 0;
+
     let coinsPersistedRemotely = false;
     if (coinsUsed > 0 && hasLiveAdminDb()) {
       try {
@@ -246,8 +249,8 @@ export const placeOrderWithPush = createServerFn({ method: 'POST' })
           userId: context.userId,
           coinsUsed,
           orderTotal: data.total,
-          payableAmount: roundCoinValue(Math.max(0, data.total - coinsUsed)),
-          paymentMethod: roundCoinValue(Math.max(0, data.total - coinsUsed)) === 0 ? 'COINS' : data.payment_method,
+          payableAmount: remainingPayable,
+          paymentMethod: paidFullyByCoins ? 'COINS' : data.payment_method,
           refunded: false,
           createdAt: new Date().toISOString(),
         });
@@ -262,8 +265,43 @@ export const placeOrderWithPush = createServerFn({ method: 'POST' })
       }
     }
 
+    // Orders paid 100% from Campu Coins wallet are pre-funded and must be accepted immediately
+    // rather than waiting in UPI payment_review.
+    let autoAccepted = false;
+    if (paidFullyByCoins) {
+      const acceptedAt = new Date().toISOString();
+      if (hasLiveAdminDb()) {
+        try {
+          const { supabaseAdmin } = await import('@/integrations/supabase/client.server');
+          const { error: acceptErr } = await supabaseAdmin
+            .from('orders')
+            .update({ status: 'accepted', accepted_at: acceptedAt })
+            .eq('id', order.id);
+          autoAccepted = !acceptErr;
+        } catch {
+          autoAccepted = false;
+        }
+      } else {
+        try {
+          const { data: callerIsAdmin } = await context.supabase.rpc('has_role', {
+            _user_id: context.userId,
+            _role: 'admin',
+          });
+          if (callerIsAdmin) {
+            const { error: acceptErr } = await context.supabase
+              .from('orders')
+              .update({ status: 'accepted', accepted_at: acceptedAt })
+              .eq('id', order.id);
+            autoAccepted = !acceptErr;
+          }
+        } catch {
+          autoAccepted = false;
+        }
+      }
+    }
+
     await dispatch({ type: 'new_order', orderId: order.id }, context);
-    return { id: order.id, coinsUsed, coinsPersistedRemotely };
+    return { id: order.id, coinsUsed, coinsPersistedRemotely, autoAccepted };
   });
 
 /** Kept for older callers; only the owner can announce their own recent order. */

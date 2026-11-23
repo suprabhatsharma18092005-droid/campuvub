@@ -187,7 +187,7 @@ function Checkout() {
     }
     setBusy(true);
     const effectiveMethod: "UPI" | "COD" = paidFullyByCoins ? "UPI" : method;
-    let data: { id: string; coinsUsed?: number; coinsPersistedRemotely?: boolean };
+    let data: { id: string; coinsUsed?: number; coinsPersistedRemotely?: boolean; autoAccepted?: boolean };
     try {
       data = await submitOrder({ data: {
         cart_items: items,
@@ -232,9 +232,15 @@ function Checkout() {
     void queryClient.invalidateQueries({ queryKey: ["products"] });
     void queryClient.invalidateQueries({ queryKey: ["app_settings"] });
     void queryClient.invalidateQueries({ queryKey: ["admin-vip"] });
+    void queryClient.invalidateQueries({ queryKey: ["orders"] });
+    void queryClient.invalidateQueries({ queryKey: ["order", data.id] });
     void wallet.refetch();
     clear();
-    toast.success("Order placed!");
+    toast.success(
+      paidFullyByCoins
+        ? "Order placed & payment accepted via Campu Coins!"
+        : "Order placed!",
+    );
     void navigate({ to: "/orders/$id", params: { id: data.id } });
 
   }

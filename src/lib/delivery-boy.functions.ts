@@ -85,7 +85,18 @@ export const assignOrderDeliveryBoy = createServerFn({ method: "POST" })
     ]);
 
     if (orderErr || !order) throw new Error("Order not found.");
-    if (order.status === "payment_review" || order.status === "pending") {
+    const coinLedger = parseCoinLedger(coinRow?.value);
+    const coinUsage = coinLedger.orderUsages[order.id] ?? null;
+    const isFullCoinOrder = Boolean(
+      coinUsage && coinUsage.coinsUsed > 0 && coinUsage.payableAmount === 0,
+    );
+
+    if (order.status === "payment_review" && isFullCoinOrder) {
+      await context.supabase
+        .from("orders")
+        .update({ status: "accepted", accepted_at: new Date().toISOString() })
+        .eq("id", order.id);
+    } else if (order.status === "payment_review" || order.status === "pending") {
       throw new Error("Verify and accept the order payment first before assigning a Delivery Boy.");
     }
     if (order.status === "delivered" || order.status === "cancelled") {
@@ -103,8 +114,6 @@ export const assignOrderDeliveryBoy = createServerFn({ method: "POST" })
       .eq("id", order.student_id)
       .maybeSingle();
 
-    const coinLedger = parseCoinLedger(coinRow?.value);
-    const coinUsage = coinLedger.orderUsages[order.id] ?? null;
     const otpDigest = await computeDeliveryOtpDigest(order.id, order.delivery_otp ?? "");
     const existing = currentState.assignments.find((a) => a.orderId === order.id);
 
@@ -143,40 +152,77 @@ export const assignOrderDeliveryBoy = createServerFn({ method: "POST" })
       );
     if (saveErr) throw new Error(saveErr.message);
 
+    let telegramSent = false;
+    let telegramReason: string | undefined;
+    let pushSent = 0;
+
     try {
-      const { dispatchPushEvent } = await import("./push-events.server");
-      const { sendTelegramDeliveryBoyAlert } = await import("./telegram.server");
-      await Promise.all([
-        dispatchPushEvent(
-          {
-            type: "delivery_assigned",
-            boyUserId: boy.userId,
+      const { dispatchPushEvent, canSendLocally } = await import("./push-events.server");
+      const { hasTelegramCredentials, sendTelegramDeliveryBoyAlert } = await import("./telegram.server");
+
+      const pushPayload = {
+        type: "delivery_assigned" as const,
+        boyUserId: boy.userId,
+        orderId: assignment.orderId,
+        deliveryAddress: assignment.deliveryAddress,
+        paymentMethod: assignment.paymentMethod,
+        paidWithCoins: assignment.paidWithCoins,
+        codCollectAmount: assignment.codCollectAmount,
+      };
+
+      if (canSendLocally()) {
+        // runPushEvent handles both FCM push and Telegram alert in one shot
+        const pushRes = await dispatchPushEvent(pushPayload, context);
+        pushSent = pushRes.sent;
+        if (pushRes.error) {
+          telegramSent = false;
+          telegramReason = pushRes.error;
+        } else {
+          telegramSent = Boolean(hasTelegramCredentials());
+        }
+      } else if (hasTelegramCredentials()) {
+        // Local host has Telegram bot creds without FCM keys: send Telegram directly & forward FCM push
+        const [pushRes, tgRes] = await Promise.all([
+          dispatchPushEvent(pushPayload, context),
+          sendTelegramDeliveryBoyAlert({
+            boyName: boy.name,
+            boyChatId: boy.telegramChatId,
             orderId: assignment.orderId,
+            customerName: assignment.customerName,
             deliveryAddress: assignment.deliveryAddress,
+            phoneNumber: assignment.phoneNumber,
+            items: assignment.items,
             paymentMethod: assignment.paymentMethod,
             paidWithCoins: assignment.paidWithCoins,
             codCollectAmount: assignment.codCollectAmount,
-          },
-          context,
-        ),
-        sendTelegramDeliveryBoyAlert({
-          boyName: boy.name,
-          boyChatId: boy.telegramChatId,
-          orderId: assignment.orderId,
-          customerName: assignment.customerName,
-          deliveryAddress: assignment.deliveryAddress,
-          phoneNumber: assignment.phoneNumber,
-          items: assignment.items,
-          paymentMethod: assignment.paymentMethod,
-          paidWithCoins: assignment.paidWithCoins,
-          codCollectAmount: assignment.codCollectAmount,
-        }),
-      ]);
-    } catch {
-      // Notification dispatch must never roll back assignment.
+          }),
+        ]);
+        pushSent = pushRes.sent;
+        telegramSent = tgRes.ok;
+        telegramReason = tgRes.error;
+      } else {
+        // Neither FCM nor Telegram keys locally: forward event to trusted Lovable host for both
+        const pushRes = await dispatchPushEvent(pushPayload, context);
+        pushSent = pushRes.sent;
+        if (pushRes.error) {
+          telegramSent = false;
+          telegramReason = pushRes.error;
+        } else {
+          telegramSent = Boolean(boy.telegramChatId);
+        }
+      }
+    } catch (err) {
+      telegramSent = false;
+      telegramReason = err instanceof Error ? err.message : "Notification dispatch failed";
     }
 
-    return { ok: true, assignment };
+    return {
+      ok: true,
+      assignment,
+      pushSent,
+      telegramSent,
+      ...(telegramReason ? { telegramReason } : {}),
+    };
   });
 
 const advanceStatusSchema = z.object({
@@ -408,29 +454,31 @@ export const submitDeliveryPayoutRequest = createServerFn({ method: "POST" })
     }
 
     try {
-      const { dispatchPushEvent } = await import("./push-events.server");
-      const { sendTelegramPayoutAlert } = await import("./telegram.server");
-      await Promise.all([
-        dispatchPushEvent(
-          {
-            type: "delivery_payout_request",
+      const { dispatchPushEvent, canSendLocally } = await import("./push-events.server");
+      const { hasTelegramCredentials, sendTelegramPayoutAlert } = await import("./telegram.server");
+      const event = {
+        type: "delivery_payout_request" as const,
+        boyName: request.boyName,
+        amount: request.amount,
+        method: request.method,
+        upiId: request.upiId,
+        bankingName: request.bankingName,
+      };
+      if (!canSendLocally() && hasTelegramCredentials()) {
+        await Promise.all([
+          dispatchPushEvent(event, context),
+          sendTelegramPayoutAlert({
             boyName: request.boyName,
+            phone: request.phone,
             amount: request.amount,
             method: request.method,
             upiId: request.upiId,
             bankingName: request.bankingName,
-          },
-          context,
-        ),
-        sendTelegramPayoutAlert({
-          boyName: request.boyName,
-          phone: request.phone,
-          amount: request.amount,
-          method: request.method,
-          upiId: request.upiId,
-          bankingName: request.bankingName,
-        }),
-      ]);
+          }),
+        ]);
+      } else {
+        await dispatchPushEvent(event, context);
+      }
     } catch {
       // Never block payout creation on external push/Telegram failure
     }
@@ -536,3 +584,37 @@ export const lookupProfileByEmailForDelivery = createServerFn({ method: "POST" }
       message: "No account found with that email.",
     };
   });
+
+const testTelegramSchema = z.object({
+  chatId: z.string().trim().min(1, "Enter a Telegram Chat ID first").max(120),
+  boyName: z.string().trim().max(80).optional(),
+});
+
+/** Admin-only: Sends a test Telegram alert to a Delivery Boy's Chat ID (local or trusted host). */
+export const testDeliveryBoyTelegram = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: z.input<typeof testTelegramSchema>) => testTelegramSchema.parse(input))
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context);
+    const { hasTelegramCredentials, sendTelegramTestAlert } = await import("./telegram.server");
+    const { dispatchPushEvent } = await import("./push-events.server");
+
+    if (hasTelegramCredentials()) {
+      return sendTelegramTestAlert(data.chatId, data.boyName ?? null);
+    }
+
+    const res = await dispatchPushEvent(
+      {
+        type: "telegram_test",
+        chatId: data.chatId,
+        ...(data.boyName ? { boyName: data.boyName } : {}),
+      },
+      context,
+    );
+    return {
+      ok: res.sent > 0,
+      chatId: data.chatId,
+      ...(res.error ? { error: res.error } : {}),
+    };
+  });
+
