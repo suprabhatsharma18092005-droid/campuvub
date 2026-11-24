@@ -7,6 +7,8 @@ import {
   Check,
   Crown,
   IndianRupee,
+  Lock,
+  LockOpen,
   Megaphone,
   Package,
   Plus,
@@ -52,10 +54,17 @@ import {
   ADMIN_ACCOUNTING_KEY,
   emptyAdminAccounting,
   parseAdminAccounting,
-  roundPositiveMoney,
+  recordProductCostChange,
   roundSignedMoney,
+  syncAccountingWithOrders,
   type AdminAccountingV1,
 } from "@/lib/admin-accounting";
+import {
+  STORE_CLOSED_KEY,
+  formatStoreClockTime,
+  getStoreReopenTime,
+  isStoreClosed,
+} from "@/lib/store-status";
 import { COIN_LEDGER_SETTING_KEY, applyOrderCoinRefundToLedger, type CoinOrderUsage } from "@/lib/coins";
 import {
   DELIVERY_BOY_STATE_KEY,
@@ -141,6 +150,7 @@ function Admin() {
   const assignDeliveryBoyRemote = useServerFn(assignOrderDeliveryBoy);
   const [sound, setSound] = useState(true);
   const [busyOrderId, setBusyOrderId] = useState<string | null>(null);
+  const [togglingStore, setTogglingStore] = useState(false);
   const seen = useRef<Set<string>>(new Set());
 
   const isStaff = roles?.includes("admin") ?? false;
@@ -473,6 +483,25 @@ function Admin() {
     void queryClient.invalidateQueries({ queryKey: ["products"] });
   }
 
+  async function toggleStoreShutter(nextClosed: boolean) {
+    setTogglingStore(true);
+    const { error } = await supabase
+      .from("app_settings")
+      .upsert({ key: STORE_CLOSED_KEY, value: String(nextClosed) }, { onConflict: "key" });
+    setTogglingStore(false);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    const reopenTime = formatStoreClockTime(getStoreReopenTime(appSettings.data));
+    toast.success(
+      nextClosed
+        ? `Store CLOSED! Shutter lock is live (opens at ${reopenTime} IST).`
+        : "Store is now OPEN for orders!",
+    );
+    void queryClient.invalidateQueries({ queryKey: ["app_settings"] });
+  }
+
   if (rolesLoading) {
     return (
       <AppShell>
@@ -543,6 +572,8 @@ function Admin() {
     });
   }
 
+  const storeClosed = isStoreClosed(appSettings.data);
+
   return (
     <AppShell>
       <div className="min-w-0 max-w-full overflow-x-clip px-4 pt-5">
@@ -553,16 +584,42 @@ function Admin() {
               <Crown className="h-3 w-3" /> Store Owner
             </span>
           </div>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => setSound((s) => !s)}
-            className="shrink-0 rounded-full text-xs"
-          >
-            {sound ? <Volume2 className="h-3.5 w-3.5" /> : <VolumeX className="h-3.5 w-3.5" />}
-            {sound ? "Alerts on" : "Alerts off"}
-          </Button>
+          <div className="flex shrink-0 items-center gap-2">
+            <Button
+              type="button"
+              size="sm"
+              disabled={togglingStore}
+              onClick={() => void toggleStoreShutter(!storeClosed)}
+              className={cn(
+                "shrink-0 rounded-full text-xs font-bold",
+                storeClosed
+                  ? "bg-destructive text-destructive-foreground hover:opacity-90"
+                  : "bg-success text-success-foreground hover:opacity-90",
+              )}
+            >
+              {storeClosed ? (
+                <>
+                  <Lock className="mr-1 h-3.5 w-3.5" />
+                  {togglingStore ? "Opening…" : "Store Closed"}
+                </>
+              ) : (
+                <>
+                  <LockOpen className="mr-1 h-3.5 w-3.5" />
+                  {togglingStore ? "Closing…" : "Store Open"}
+                </>
+              )}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setSound((s) => !s)}
+              className="shrink-0 rounded-full text-xs"
+            >
+              {sound ? <Volume2 className="h-3.5 w-3.5" /> : <VolumeX className="h-3.5 w-3.5" />}
+              {sound ? "Alerts on" : "Alerts off"}
+            </Button>
+          </div>
         </div>
 
         <OrderSiren
@@ -793,6 +850,8 @@ function Admin() {
           <TabsContent value="stock" className="mt-4 min-w-0 max-w-full">
             <Inventory
               products={products.data ?? []}
+              orders={all}
+              assignmentsByOrder={assignmentsByOrder}
               accounting={accountingAdmin.data ?? emptyAdminAccounting()}
               onToggle={toggleStock}
             />
@@ -1193,10 +1252,14 @@ const NONE = "none";
 
 function Inventory({
   products,
+  orders,
+  assignmentsByOrder,
   accounting,
   onToggle,
 }: {
   products: ProductRow[];
+  orders: OrderRow[];
+  assignmentsByOrder: Record<string, DeliveryAssignment>;
   accounting: AdminAccountingV1;
   onToggle: (id: string, inStock: boolean) => Promise<void>;
 }) {
@@ -1275,20 +1338,25 @@ function Inventory({
       .eq("key", ADMIN_ACCOUNTING_KEY)
       .maybeSingle();
     const latest = parseAdminAccounting(latestRow?.value);
-    const nextCosts = { ...latest.productCosts };
-    if (originalPriceVal === null) {
-      delete nextCosts[productId];
-    } else {
-      nextCosts[productId] = {
-        originalPrice: roundPositiveMoney(originalPriceVal),
-        updatedAt: new Date().toISOString(),
-      };
-    }
-    const nextState: AdminAccountingV1 = {
-      ...latest,
-      productCosts: nextCosts,
-      updatedAt: new Date().toISOString(),
-    };
+
+    // 1. Lock historical delivered order snapshots at the PREVIOUS cost BEFORE recording
+    //    the new original price so past sales at the older price point never show a loss.
+    const { next: lockedBeforeChange } = syncAccountingWithOrders({
+      base: latest,
+      orders,
+      assignmentsByOrder,
+      products,
+      forceRecalculateCosts: false,
+    });
+
+    // 2. Append the new original price to timestamped cost history (effective from now onward).
+    const nextState = recordProductCostChange(
+      lockedBeforeChange,
+      productId,
+      originalPriceVal,
+      new Date().toISOString(),
+    );
+
     const { error } = await supabase
       .from("app_settings")
       .upsert(

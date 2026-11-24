@@ -41,10 +41,125 @@ export function formatIstDateLabel(dateKey: string): string {
   }).format(dt);
 }
 
+export type ProductCostHistoryPoint = {
+  originalPrice: number;
+  effectiveFrom: string;
+};
+
 export type ProductCostEntry = {
   originalPrice: number;
   updatedAt: string;
+  history?: ProductCostHistoryPoint[] | undefined;
 };
+
+const EPOCH_ISO = new Date(0).toISOString();
+
+/**
+ * Records a new original (actual shop) cost for a product while keeping a timestamped
+ * history of previous costs so older sales never recalculate against a higher future cost.
+ */
+export function recordProductCostChange(
+  base: AdminAccountingV1,
+  productId: string,
+  nextOriginalPrice: number | null,
+  nowIso: string = new Date().toISOString(),
+): AdminAccountingV1 {
+  const nextCosts: Record<string, ProductCostEntry> = { ...base.productCosts };
+  const prev = base.productCosts[productId];
+
+  if (nextOriginalPrice === null) {
+    delete nextCosts[productId];
+  } else {
+    const cleanPrice = roundPositiveMoney(nextOriginalPrice);
+    const prevHistory: ProductCostHistoryPoint[] = Array.isArray(prev?.history)
+      ? prev.history.map((h) => ({
+          originalPrice: roundPositiveMoney(h.originalPrice),
+          effectiveFrom: h.effectiveFrom,
+        }))
+      : prev
+        ? [
+            {
+              originalPrice: roundPositiveMoney(prev.originalPrice),
+              effectiveFrom: prev.updatedAt || EPOCH_ISO,
+            },
+          ]
+        : [];
+
+    const nextHistory = [...prevHistory];
+    const last = nextHistory[nextHistory.length - 1];
+    if (!last || last.originalPrice !== cleanPrice) {
+      nextHistory.push({ originalPrice: cleanPrice, effectiveFrom: nowIso });
+    }
+    nextHistory.sort(
+      (a, b) => new Date(a.effectiveFrom).getTime() - new Date(b.effectiveFrom).getTime(),
+    );
+
+    nextCosts[productId] = {
+      originalPrice: cleanPrice,
+      updatedAt: nowIso,
+      history: nextHistory.slice(-25),
+    };
+  }
+
+  return {
+    ...base,
+    productCosts: nextCosts,
+    updatedAt: nowIso,
+  };
+}
+
+/**
+ * Resolves the original shop cost that applied at `orderCreatedAt`.
+ * - If a cost history exists, picks the latest cost effective on or before `orderCreatedAt`.
+ * - If all recorded costs were created strictly AFTER `orderCreatedAt`, picks the earliest
+ *   recorded cost and caps it at `displayUnitPrice` so raising a product's price point later
+ *   never creates a false loss on older sales made at a lower selling price.
+ */
+export function resolveOriginalCostForOrderTime(
+  entry: ProductCostEntry | undefined,
+  orderCreatedAt: string,
+  displayUnitPrice: number,
+): number | null {
+  if (!entry) return null;
+  const orderMs = Date.parse(orderCreatedAt);
+  const history =
+    Array.isArray(entry.history) && entry.history.length > 0
+      ? entry.history
+      : [{ originalPrice: entry.originalPrice, effectiveFrom: entry.updatedAt }];
+
+  if (!Number.isFinite(orderMs)) {
+    return roundPositiveMoney(entry.originalPrice);
+  }
+
+  let matched: ProductCostHistoryPoint | null = null;
+  let earliest: ProductCostHistoryPoint | null = null;
+
+  for (const point of history) {
+    const pointMs = Date.parse(point.effectiveFrom);
+    if (!Number.isFinite(pointMs)) continue;
+    if (!earliest || pointMs < Date.parse(earliest.effectiveFrom)) {
+      earliest = point;
+    }
+    if (pointMs <= orderMs) {
+      if (!matched || pointMs >= Date.parse(matched.effectiveFrom)) {
+        matched = point;
+      }
+    }
+  }
+
+  if (matched) {
+    return roundPositiveMoney(matched.originalPrice);
+  }
+
+  // Order happened BEFORE the earliest recorded cost timestamp.
+  const candidate = roundPositiveMoney(earliest?.originalPrice ?? entry.originalPrice);
+  // If the cost was entered/changed later at a higher price point than what this older order
+  // actually sold for, never turn that earlier sale into a fake loss.
+  if (candidate > displayUnitPrice && displayUnitPrice >= 0) {
+    return roundPositiveMoney(displayUnitPrice);
+  }
+  return candidate;
+}
 
 export type OrderCostItemSnapshot = {
   productId?: string;
@@ -117,14 +232,35 @@ export function parseAdminAccounting(raw?: string | null): AdminAccountingV1 {
     if (parsed.productCosts && typeof parsed.productCosts === "object") {
       for (const [id, entry] of Object.entries(parsed.productCosts)) {
         if (!entry || typeof entry !== "object") continue;
-        const price = Number((entry as Partial<ProductCostEntry>).originalPrice);
+        const rawEntry = entry as Partial<ProductCostEntry>;
+        const price = Number(rawEntry.originalPrice);
         if (Number.isFinite(price) && price >= 0) {
+          const parsedHistory: ProductCostHistoryPoint[] | undefined = Array.isArray(rawEntry.history)
+            ? rawEntry.history
+                .filter(
+                  (h): h is ProductCostHistoryPoint =>
+                    Boolean(h) &&
+                    typeof h === "object" &&
+                    Number.isFinite(Number(h.originalPrice)) &&
+                    Number(h.originalPrice) >= 0 &&
+                    typeof h.effectiveFrom === "string",
+                )
+                .map((h) => ({
+                  originalPrice: roundPositiveMoney(Number(h.originalPrice)),
+                  effectiveFrom: h.effectiveFrom,
+                }))
+                .sort(
+                  (a, b) =>
+                    new Date(a.effectiveFrom).getTime() - new Date(b.effectiveFrom).getTime(),
+                )
+            : undefined;
           productCosts[id] = {
             originalPrice: roundPositiveMoney(price),
             updatedAt:
-              typeof (entry as Partial<ProductCostEntry>).updatedAt === "string"
-                ? (entry as ProductCostEntry).updatedAt
+              typeof rawEntry.updatedAt === "string"
+                ? rawEntry.updatedAt
                 : new Date(0).toISOString(),
+            ...(parsedHistory && parsedHistory.length > 0 ? { history: parsedHistory } : {}),
           };
         }
       }
@@ -221,7 +357,7 @@ export function computeOrderAccounting(params: {
         ? item.id
         : productIdByName?.[name.toLowerCase()];
 
-    // Preserve previously recorded historical unit cost unless missing or explicitly recalculated.
+    // Always preserve previously locked historical unit cost unless explicitly forced.
     const prevSnapItem = existingSnapshot?.items?.[idx];
     const hasSavedSnapCost =
       !forceRecalculateCosts &&
@@ -234,7 +370,11 @@ export function computeOrderAccounting(params: {
     if (hasSavedSnapCost) {
       originalUnitPrice = roundPositiveMoney(prevSnapItem.originalUnitPrice as number);
     } else if (resolvedId && productCosts[resolvedId]) {
-      originalUnitPrice = roundPositiveMoney(productCosts[resolvedId].originalPrice);
+      originalUnitPrice = resolveOriginalCostForOrderTime(
+        productCosts[resolvedId],
+        order.created_at,
+        displayUnitPrice,
+      );
     }
 
     displaySales = roundSignedMoney(displaySales + displayUnitPrice * qty);

@@ -26,6 +26,11 @@ import {
   scheduledDeliveryFee,
 } from "@/lib/scheduled-fee";
 import { isProfileComplete, useProfile, useSession } from "@/lib/session";
+import {
+  formatStoreClockTime,
+  getStoreReopenTime,
+  isStoreClosed,
+} from "@/lib/store-status";
 import { placeOrderWithPush } from "@/lib/push.functions";
 import { cn } from "@/lib/utils";
 import { CatalogImage } from "@/components/CatalogImage";
@@ -144,6 +149,13 @@ function Checkout() {
     const { data: latest, error: settingsError } = await supabase.from("app_settings").select("key, value");
     if (settingsError) { toast.error("Could not check current ordering settings. Try again."); return; }
     const current = Object.fromEntries((latest ?? []).map(({ key, value }) => [key, value]));
+    if (isStoreClosed(current)) {
+      void settings.refetch();
+      toast.error(
+        `Store is currently closed. Ordering will reopen at ${formatStoreClockTime(getStoreReopenTime(current))} IST.`,
+      );
+      return;
+    }
     if (current["night_mode_enabled"] === "true" && method === "COD") {
       void settings.refetch();
       setMethod("UPI");

@@ -463,7 +463,7 @@ export function AdminProfitStats({
                 variant="outline"
                 size="sm"
                 disabled={syncing}
-                onClick={() => void saveSnapshot(true)}
+                onClick={() => void saveSnapshot(false)}
                 className="h-9 shrink-0 whitespace-nowrap rounded-xl text-xs font-semibold"
               >
                 <RefreshCw

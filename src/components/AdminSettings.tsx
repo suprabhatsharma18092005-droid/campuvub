@@ -1,17 +1,25 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ImagePlus, Save, Trash2 } from "lucide-react";
+import { Eye, ImagePlus, Lock, LockOpen, Save, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useServerFn } from "@tanstack/react-start";
 
 import { sendTestPushToMe } from "@/lib/push.functions";
 
+import { StoreClosedShutter } from "@/components/StoreClosedShutter";
 import { ThemePicker } from "@/components/ThemePicker";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { supabase } from "@/integrations/supabase/client";
 import { settingsQuery } from "@/lib/queries";
+import {
+  DEFAULT_STORE_REOPEN_TIME,
+  STORE_CLOSED_KEY,
+  STORE_CLOSED_MESSAGE_KEY,
+  STORE_REOPEN_TIME_KEY,
+  formatStoreClockTime,
+} from "@/lib/store-status";
 import { DEFAULT_THEME_ID, THEME_SETTING_KEY, applyAppTheme, type AppThemeId } from "@/lib/themes";
 import { QR_BUCKET, useUpiQrImage } from "@/lib/upi";
 import { CATALOG_BUCKET, catalogReference, removeCatalogImage, resolveCatalogImage, uploadCatalogImage } from "@/lib/catalog-media";
@@ -39,6 +47,8 @@ export function AdminSettings() {
   const qr = useUpiQrImage(data?.["upi_qr_path"] || undefined);
 
   const [savingTheme, setSavingTheme] = useState<AppThemeId | null>(null);
+  const [togglingStore, setTogglingStore] = useState(false);
+  const [previewShutter, setPreviewShutter] = useState(false);
 
   useEffect(() => {
     if (data) setValues({
@@ -51,9 +61,39 @@ export function AdminSettings() {
       sunday_tuesday_delivery_time: data["sunday_tuesday_delivery_time"] ?? "10:00",
       quick_delivery_estimate: data["quick_delivery_estimate"] ?? "15–20 min",
       whatsapp_link: data["whatsapp_link"] ?? "",
+      [STORE_CLOSED_KEY]: data[STORE_CLOSED_KEY] ?? "false",
+      [STORE_REOPEN_TIME_KEY]: data[STORE_REOPEN_TIME_KEY] ?? DEFAULT_STORE_REOPEN_TIME,
+      [STORE_CLOSED_MESSAGE_KEY]: data[STORE_CLOSED_MESSAGE_KEY] ?? "",
       [THEME_SETTING_KEY]: data[THEME_SETTING_KEY] ?? DEFAULT_THEME_ID,
     });
   }, [data]);
+
+  async function toggleStoreClosedInstant(nextClosed: boolean) {
+    if (!values) return;
+    setTogglingStore(true);
+    const reopenTime = values[STORE_REOPEN_TIME_KEY]?.trim() || DEFAULT_STORE_REOPEN_TIME;
+    const message = values[STORE_CLOSED_MESSAGE_KEY]?.trim() ?? "";
+    setValues((prev) => (prev ? { ...prev, [STORE_CLOSED_KEY]: String(nextClosed) } : prev));
+    const { error } = await supabase.from("app_settings").upsert(
+      [
+        { key: STORE_CLOSED_KEY, value: String(nextClosed) },
+        { key: STORE_REOPEN_TIME_KEY, value: reopenTime },
+        { key: STORE_CLOSED_MESSAGE_KEY, value: message },
+      ],
+      { onConflict: "key" },
+    );
+    setTogglingStore(false);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    toast.success(
+      nextClosed
+        ? `Store shutter CLOSED! Customers will see morning open at ${formatStoreClockTime(reopenTime)} IST.`
+        : "Store is now OPEN for orders!",
+    );
+    void queryClient.invalidateQueries({ queryKey: ["app_settings"] });
+  }
 
   async function selectTheme(themeId: AppThemeId, themeName: string) {
     setValues((prev) => (prev ? { ...prev, [THEME_SETTING_KEY]: themeId } : prev));
@@ -163,9 +203,114 @@ export function AdminSettings() {
   if (isLoading || !values) return <p className="py-8 text-center text-sm text-muted-foreground">Loading settings…</p>;
 
   const activeThemeId = values[THEME_SETTING_KEY] ?? DEFAULT_THEME_ID;
+  const storeIsClosed = values[STORE_CLOSED_KEY] === "true";
 
   return (
     <div className="space-y-6 pb-6">
+      {previewShutter && (
+        <StoreClosedShutter
+          settings={values}
+          preview
+          onClosePreview={() => setPreviewShutter(false)}
+        />
+      )}
+
+      {/* Master Store Open / Close Shutter Control */}
+      <section className="overflow-hidden rounded-2xl border border-border bg-card">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3.5">
+          <div className="min-w-0">
+            <h2 className="flex items-center gap-2 font-display text-base font-bold text-foreground">
+              {storeIsClosed ? (
+                <Lock className="h-4 w-4 text-destructive" />
+              ) : (
+                <LockOpen className="h-4 w-4 text-success" />
+              )}
+              <span>Store Open / Close Shutter</span>
+            </h2>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              {storeIsClosed
+                ? "Orders are CLOSED — users can add to cart, and see the animated shutter lock when proceeding to order."
+                : "Website is currently OPEN — customers can browse and place orders normally."}
+            </p>
+          </div>
+          <Button
+            type="button"
+            disabled={togglingStore}
+            onClick={() => void toggleStoreClosedInstant(!storeIsClosed)}
+            className={
+              storeIsClosed
+                ? "h-10 shrink-0 rounded-xl bg-success px-4 text-xs font-bold text-success-foreground hover:opacity-90"
+                : "h-10 shrink-0 rounded-xl bg-destructive px-4 text-xs font-bold text-destructive-foreground hover:opacity-90"
+            }
+          >
+            {storeIsClosed ? (
+              <>
+                <LockOpen className="mr-1.5 h-3.5 w-3.5" />
+                {togglingStore ? "Opening…" : "Open Store"}
+              </>
+            ) : (
+              <>
+                <Lock className="mr-1.5 h-3.5 w-3.5" />
+                {togglingStore ? "Closing…" : "Close Store"}
+              </>
+            )}
+          </Button>
+        </div>
+
+        <div className="space-y-3.5 p-4">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <label htmlFor="store-reopen-time" className="mb-1 block text-xs font-semibold text-foreground">
+                Morning Opening Time (IST)
+              </label>
+              <Input
+                id="store-reopen-time"
+                type="time"
+                value={values[STORE_REOPEN_TIME_KEY] ?? DEFAULT_STORE_REOPEN_TIME}
+                onChange={(e) =>
+                  setValues({ ...values, [STORE_REOPEN_TIME_KEY]: e.target.value })
+                }
+                className="h-10 rounded-xl"
+              />
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                Shown on the closed shutter screen with a live morning countdown (e.g.{" "}
+                {formatStoreClockTime(values[STORE_REOPEN_TIME_KEY] || DEFAULT_STORE_REOPEN_TIME)} IST).
+              </p>
+            </div>
+            <div>
+              <label htmlFor="store-closed-msg" className="mb-1 block text-xs font-semibold text-foreground">
+                Closed Shutter Message (optional)
+              </label>
+              <Input
+                id="store-closed-msg"
+                value={values[STORE_CLOSED_MESSAGE_KEY] ?? ""}
+                placeholder="e.g. Shop closed for tonight. See you in the morning!"
+                onChange={(e) =>
+                  setValues({ ...values, [STORE_CLOSED_MESSAGE_KEY]: e.target.value })
+                }
+                className="h-10 rounded-xl"
+              />
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border/70 pt-3">
+            <span className="text-xs text-muted-foreground">
+              Save settings below after editing morning time or message.
+            </span>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setPreviewShutter(true)}
+              className="h-9 rounded-xl text-xs font-semibold"
+            >
+              <Eye className="mr-1.5 h-3.5 w-3.5" />
+              Preview Shutter Lock
+            </Button>
+          </div>
+        </div>
+      </section>
+
       <ThemePicker
         activeThemeId={activeThemeId}
         disabled={savingTheme !== null}

@@ -225,3 +225,69 @@ test("syncs dailyHistory in IST and aggregates across saved history beyond live 
   expect(allTime.deliveryKept).toBe(4);
   expect(allTime.netProfit).toBe(114);
 });
+
+test("changing originalPrice later never turns past sales at an older price point into a loss", async () => {
+  const { recordProductCostChange } = await import("./admin-accounting.ts");
+
+  // 1. Product initially costs ₹15 at 09:00Z, sells at ₹20 at 10:00Z
+  let state = recordProductCostChange(emptyAdminAccounting(), "p-maggie", 15, "2026-11-20T09:00:00Z");
+  const oldOrder = {
+    id: "ord-old",
+    created_at: "2026-11-20T10:00:00Z",
+    status: "delivered",
+    subtotal: 20,
+    delivery_fee: 5,
+    total: 25,
+    cart_items: [{ id: "p-maggie", name: "Maggie", qty: 1, price: 20 }],
+  };
+
+  // Even BEFORE syncing oldOrder, admin raises originalPrice to ₹24 (and display price to ₹30) at 14:00Z
+  state = recordProductCostChange(state, "p-maggie", 24, "2026-11-20T14:00:00Z");
+
+  const newOrder = {
+    id: "ord-new",
+    created_at: "2026-11-20T15:00:00Z",
+    status: "delivered",
+    subtotal: 30,
+    delivery_fee: 5,
+    total: 35,
+    cart_items: [{ id: "p-maggie", name: "Maggie", qty: 1, price: 30 }],
+  };
+
+  const synced = syncAccountingWithOrders({
+    base: state,
+    orders: [oldOrder, newOrder],
+    assignmentsByOrder: {},
+  });
+
+  // Old order resolves the ₹15 cost effective at 10:00Z -> profit +₹5 (no loss!)
+  expect(synced.next.orderCostSnapshots["ord-old"]?.originalCostTotal).toBe(15);
+  expect(synced.next.orderCostSnapshots["ord-old"]?.productProfit).toBe(5);
+  // New order resolves the ₹24 cost effective at 15:00Z -> profit +₹6
+  expect(synced.next.orderCostSnapshots["ord-new"]?.originalCostTotal).toBe(24);
+  expect(synced.next.orderCostSnapshots["ord-new"]?.productProfit).toBe(6);
+
+  // 2. If NO cost existed when an older ₹20 order was sold and admin adds ₹25 cost later,
+  //    older order must NEVER show a negative fake loss.
+  const lateCostState = recordProductCostChange(
+    emptyAdminAccounting(),
+    "p-late",
+    25,
+    "2026-11-21T12:00:00Z",
+  );
+  const lateOrderSnap = computeOrderAccounting({
+    order: {
+      id: "ord-before-cost",
+      created_at: "2026-11-20T08:00:00Z",
+      status: "delivered",
+      subtotal: 20,
+      delivery_fee: 5,
+      total: 25,
+      cart_items: [{ id: "p-late", name: "Chips", qty: 1, price: 20 }],
+    },
+    productCosts: lateCostState.productCosts,
+  });
+  expect(lateOrderSnap.originalCostTotal).toBe(20);
+  expect(lateOrderSnap.productProfit).toBe(0);
+  expect(lateOrderSnap.netProfit).toBe(5);
+});

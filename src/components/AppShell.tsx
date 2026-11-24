@@ -21,6 +21,7 @@ import { CampuLogo } from "@/components/CampuLogo";
 import { CartBar } from "@/components/CartBar";
 import { CatalogImage } from "@/components/CatalogImage";
 import { PushBanner } from "@/components/PushBanner";
+import { StoreClosedShutter } from "@/components/StoreClosedShutter";
 import { AdminCoinNotifier, StudentCoinStatusNotifier } from "@/components/admin/AdminCoinNotifier";
 import { AdminDeliveryNotifier, DeliveryBoyNotifier } from "@/components/delivery/DeliveryBoySiren";
 import {
@@ -40,6 +41,11 @@ import { useLiveSync, usePushRegistration } from "@/lib/live-sync";
 import { listenForForegroundPush } from "@/lib/push";
 import { productsQuery, settingsQuery } from "@/lib/queries";
 import { useSession } from "@/lib/session";
+import {
+  formatStoreClockTime,
+  getStoreReopenTime,
+  isStoreClosed,
+} from "@/lib/store-status";
 import { cn } from "@/lib/utils";
 import { RoyalThemeContext, useRoyalThemeState } from "@/lib/vip";
 
@@ -150,16 +156,28 @@ export function AppShell({
     }
   }
 
+  const storeClosed = isStoreClosed(settings.data);
+  const showCheckoutShutter = storeClosed && pathname === "/checkout";
+
   return (
     <RoyalThemeContext.Provider value={royal}>
       {royal.isAdmin && <AdminCoinNotifier />}
       {royal.isAdmin && <AdminDeliveryNotifier />}
       {session?.user.id && <StudentCoinStatusNotifier userId={session.user.id} />}
       {session?.user.id && <DeliveryBoyNotifier />}
+      {showCheckoutShutter && (
+        <StoreClosedShutter settings={settings.data} isAdmin={royal.isAdmin} />
+      )}
       <div
         data-royal={royal.isRoyal ? "true" : undefined}
         className="flex min-h-screen w-full flex-col overflow-x-clip bg-background"
       >
+        {royal.isAdmin && storeClosed && (
+          <div className="bg-destructive px-4 py-1.5 text-center text-xs font-semibold text-destructive-foreground">
+            Store shutter is CLOSED for orders · Morning open:{" "}
+            {formatStoreClockTime(getStoreReopenTime(settings.data))} IST
+          </div>
+        )}
         <header className="sticky top-0 z-30 border-b border-border/60 bg-background/95 text-foreground transition-colors md:shadow-xs">
           <div className="mx-auto flex h-12 w-full max-w-7xl items-center gap-2 px-4 md:h-14 md:px-6">
             <Link to="/" className="flex items-center gap-2">

@@ -1,9 +1,11 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { Minus, Plus, Trash2 } from "lucide-react";
+import { Lock, Minus, Plus, Trash2 } from "lucide-react";
+import { useState } from "react";
 
 import { AppShell } from "@/components/AppShell";
 import { CatalogImage } from "@/components/CatalogImage";
 import { PreorderNotice, usePreorder } from "@/components/PreorderNotice";
+import { StoreClosedShutter } from "@/components/StoreClosedShutter";
 import { Button } from "@/components/ui/button";
 import { useCart, useEnforceCartMode } from "@/lib/cart";
 import { MODE_LABEL, deliveryInfoText, useDeliveryMode } from "@/lib/delivery";
@@ -13,6 +15,12 @@ import {
   SCHEDULED_ORIGINAL_FEE,
   scheduledDeliveryFee,
 } from "@/lib/scheduled-fee";
+import { useRoles } from "@/lib/session";
+import {
+  formatStoreClockTime,
+  getStoreReopenTime,
+  isStoreClosed,
+} from "@/lib/store-status";
 
 export const Route = createFileRoute("/cart")({
   head: () => ({
@@ -31,13 +39,24 @@ export const Route = createFileRoute("/cart")({
 function CartPage() {
   const { items, setQty, remove, subtotal } = useCart();
   const { settings, remaining } = usePreorder();
+  const { data: roles } = useRoles();
+  const [showShutter, setShowShutter] = useState(false);
   const mode = useDeliveryMode();
   useEnforceCartMode();
   const scheduled = mode === "sunday_tuesday" ? scheduledDeliveryFee(subtotal) : null;
   const normalQuickUpi = deliveryFee(settings.data, "UPI");
+  const storeClosed = isStoreClosed(settings.data);
+  const isAdmin = roles?.includes("admin") ?? false;
 
   return (
     <AppShell>
+      {storeClosed && showShutter && (
+        <StoreClosedShutter
+          settings={settings.data}
+          isAdmin={isAdmin}
+          onDismiss={() => setShowShutter(false)}
+        />
+      )}
       <div className="px-4 pt-5 pb-10">
         <h1 className="font-display text-2xl font-bold">Your cart</h1>
         <p className="mt-1 text-sm font-semibold text-primary">
@@ -140,8 +159,25 @@ function CartPage() {
                     : `, ${rupees(deliveryFee(settings.data, "COD"))} with cash.`}
                 </p>
               )}
+              {storeClosed && (
+                <p className="mt-3 flex items-center gap-2 rounded-xl border border-primary/30 bg-accent/60 px-3 py-2 text-xs font-semibold text-foreground">
+                  <Lock className="h-3.5 w-3.5 shrink-0 text-primary" />
+                  <span>
+                    Store is closed right now · Reopens at{" "}
+                    {formatStoreClockTime(getStoreReopenTime(settings.data))} IST
+                  </span>
+                </p>
+              )}
               {scheduled && !scheduled.eligible ? (
                 <Button disabled className="mt-4 h-12 w-full rounded-full bg-brand text-base font-semibold text-primary-foreground disabled:opacity-40">
+                  Proceed to checkout
+                </Button>
+              ) : storeClosed ? (
+                <Button
+                  type="button"
+                  onClick={() => setShowShutter(true)}
+                  className="mt-4 h-12 w-full rounded-full bg-brand text-base font-semibold text-primary-foreground shadow-float hover:opacity-95"
+                >
                   Proceed to checkout
                 </Button>
               ) : (

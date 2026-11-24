@@ -121,6 +121,23 @@ export const placeOrderWithPush = createServerFn({ method: 'POST' })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: z.input<typeof orderInputSchema>) => orderInputSchema.parse(input))
   .handler(async ({ data, context }) => {
+    const {
+      STORE_CLOSED_KEY,
+      STORE_REOPEN_TIME_KEY,
+      formatStoreClockTime,
+      getStoreReopenTime,
+      isStoreClosed,
+    } = await import('./store-status');
+    const { data: storeRows } = await context.supabase
+      .from('app_settings')
+      .select('key, value')
+      .in('key', [STORE_CLOSED_KEY, STORE_REOPEN_TIME_KEY, 'order_start_time']);
+    const storeMap = Object.fromEntries((storeRows ?? []).map((r) => [r.key, r.value]));
+    if (isStoreClosed(storeMap)) {
+      const reopenLabel = formatStoreClockTime(getStoreReopenTime(storeMap));
+      throw new Error(`Store is currently closed. Ordering will reopen at ${reopenLabel} IST.`);
+    }
+
     const { SCHEDULED_MIN_ORDER } = await import('./scheduled-fee');
     if (data.delivery_type === 'sunday_tuesday' && data.subtotal < SCHEDULED_MIN_ORDER) {
       throw new Error(`Minimum order is ₹${SCHEDULED_MIN_ORDER} for Sunday & Tuesday Special.`);

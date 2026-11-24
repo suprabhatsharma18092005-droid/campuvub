@@ -434,8 +434,81 @@
   }
 }
 
+@keyframes shutter-drop {
+  0% {
+    transform: translateY(-100%);
+  }
+  72% {
+    transform: translateY(1.2%);
+  }
+  86% {
+    transform: translateY(-0.6%);
+  }
+  100% {
+    transform: translateY(0%);
+  }
+}
+
+@keyframes padlock-drop-snap {
+  0% {
+    opacity: 0;
+    transform: translateY(-22px) scale(0.84);
+  }
+  60% {
+    opacity: 1;
+    transform: translateY(3px) scale(1.04);
+  }
+  80% {
+    transform: translateY(-1px) scale(0.98);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes shackle-lock {
+  0%,
+  45% {
+    transform: translateY(-6px);
+  }
+  78% {
+    transform: translateY(1px);
+  }
+  100% {
+    transform: translateY(0);
+  }
+}
+
+@keyframes shutter-card-reveal {
+  0% {
+    opacity: 0;
+    transform: translateY(16px) scale(0.97);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
 @utility animate-product-enter {
   animation: product-enter 0.34s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@utility animate-shutter-drop {
+  animation: shutter-drop 0.85s cubic-bezier(0.22, 0.9, 0.3, 1) both;
+}
+
+@utility animate-padlock-snap {
+  animation: padlock-drop-snap 0.55s cubic-bezier(0.2, 0.9, 0.3, 1) 0.58s both;
+}
+
+@utility animate-shackle-lock {
+  animation: shackle-lock 0.65s cubic-bezier(0.3, 1, 0.4, 1) 0.72s both;
+}
+
+@utility animate-shutter-card-reveal {
+  animation: shutter-card-reveal 0.48s cubic-bezier(0.22, 1, 0.36, 1) 0.48s both;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -447,7 +520,11 @@
   .animate-fly-in,
   .animate-float-pill,
   .animate-pill-pop,
-  .animate-product-enter {
+  .animate-product-enter,
+  .animate-shutter-drop,
+  .animate-padlock-snap,
+  .animate-shackle-lock,
+  .animate-shutter-card-reveal {
     animation: none !important;
   }
 }
