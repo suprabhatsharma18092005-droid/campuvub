@@ -41,6 +41,7 @@ import { useLiveSync, usePushRegistration } from "@/lib/live-sync";
 import { listenForForegroundPush } from "@/lib/push";
 import { productsQuery, settingsQuery } from "@/lib/queries";
 import { useSession } from "@/lib/session";
+import { getStoreName } from "@/lib/admin-access";
 import {
   formatStoreClockTime,
   getStoreReopenTime,
@@ -157,6 +158,7 @@ export function AppShell({
   }
 
   const storeClosed = isStoreClosed(settings.data);
+  const storeName = getStoreName(settings.data);
   const showCheckoutShutter = storeClosed && pathname === "/checkout";
 
   return (
@@ -179,18 +181,27 @@ export function AppShell({
           </div>
         )}
         <header className="sticky top-0 z-30 border-b border-border/60 bg-background/95 text-foreground transition-colors md:shadow-xs">
-          <div className="mx-auto flex h-12 w-full max-w-7xl items-center gap-2 px-4 md:h-14 md:px-6">
-            <Link to="/" className="flex items-center gap-2">
-              <CampuLogo className="h-7 w-7 rounded-xl md:h-8 md:w-8" />
-              <span className="font-display text-[18px] font-extrabold tracking-tight text-brand md:text-[20px]">
-                Campu
-              </span>
-              {royal.isRoyal && (
-                <span className="ml-0.5 inline-flex items-center gap-1 rounded-full bg-brand px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wider text-primary-foreground shadow-xs">
-                  <Crown className="h-3 w-3" />
-                  {royal.isAdmin ? "Admin" : "VIP"}
-                </span>
-              )}
+          <div className="mx-auto flex min-h-12 w-full max-w-7xl items-center gap-2 px-4 py-1 md:min-h-14 md:px-6">
+            <Link to="/" className="flex min-w-0 items-center gap-2">
+              <CampuLogo className="h-7 w-7 shrink-0 rounded-xl md:h-8 md:w-8" />
+              <div className="flex min-w-0 flex-col leading-none">
+                <div className="flex items-center gap-1.5">
+                  <span className="font-display text-[18px] font-extrabold leading-none tracking-tight text-brand md:text-[20px]">
+                    Campu
+                  </span>
+                  {royal.isRoyal && (
+                    <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-brand px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wider text-primary-foreground shadow-xs">
+                      <Crown className="h-3 w-3" />
+                      {royal.isAdmin ? "Admin" : "VIP"}
+                    </span>
+                  )}
+                </div>
+                {storeName && (
+                  <span className="mt-0.5 max-w-[155px] truncate text-[10.5px] font-semibold leading-tight text-muted-foreground sm:max-w-[240px] md:text-[11px]">
+                    {storeName}
+                  </span>
+                )}
+              </div>
             </Link>
 
             <div className="ml-auto flex items-center gap-2">

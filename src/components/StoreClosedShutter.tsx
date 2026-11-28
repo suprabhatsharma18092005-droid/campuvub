@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 
 import { CampuLogo } from "@/components/CampuLogo";
 import { Button } from "@/components/ui/button";
+import { getStoreName } from "@/lib/admin-access";
 import { countdownLabel } from "@/lib/ordering";
 import {
   formatStoreClockTime,
@@ -28,6 +29,7 @@ export function StoreClosedShutter({
 }) {
   const reopenTime = getStoreReopenTime(settings);
   const closedMessage = getStoreClosedMessage(settings);
+  const storeName = getStoreName(settings);
   const [nowMs, setNowMs] = useState<number>(() => Date.now());
 
   useEffect(() => {
@@ -93,11 +95,18 @@ export function StoreClosedShutter({
             borderBottom: "1px solid color-mix(in oklab, var(--primary) 38%, #ffffff)",
           }}
         >
-          <div className="flex items-center gap-2.5">
-            <CampuLogo className="h-8 w-8 rounded-xl ring-1 ring-white/30" />
-            <span className="font-display text-lg font-extrabold tracking-tight text-white">
-              Campu
-            </span>
+          <div className="flex min-w-0 items-center gap-2.5">
+            <CampuLogo className="h-8 w-8 shrink-0 rounded-xl ring-1 ring-white/30" />
+            <div className="flex min-w-0 flex-col leading-none">
+              <span className="font-display text-lg font-extrabold leading-tight tracking-tight text-white">
+                Campu
+              </span>
+              {storeName && (
+                <span className="max-w-[180px] truncate text-[11px] font-semibold leading-tight text-white/80 sm:max-w-[260px]">
+                  {storeName}
+                </span>
+              )}
+            </div>
           </div>
           {handleClose ? (
             <Button

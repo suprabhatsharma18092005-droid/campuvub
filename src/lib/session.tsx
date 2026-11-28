@@ -1,8 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
+import { useServerFn } from "@tanstack/react-start";
 import type { Session } from "@supabase/supabase-js";
 import { createContext, useContext, useEffect, useState } from "react";
 
 import { supabase } from "@/integrations/supabase/client";
+import { syncMyPendingAdminRole } from "@/lib/admin-access.functions";
+
+const pendingRoleSyncedUsers = new Set<string>();
 
 const SessionContext = createContext<{ session: Session | null; loading: boolean }>({
   session: null,
@@ -70,6 +74,7 @@ export function isProfileComplete(profile: Profile | null | undefined) {
 export function useRoles() {
   const { session } = useSession();
   const userId = session?.user.id;
+  const syncPendingAdmin = useServerFn(syncMyPendingAdminRole);
 
   return useQuery({
     queryKey: ["roles", userId],
@@ -78,7 +83,25 @@ export function useRoles() {
     queryFn: async (): Promise<string[]> => {
       const { data, error } = await supabase.from("user_roles").select("role").eq("user_id", userId!);
       if (error) throw error;
-      return (data ?? []).map((r) => r.role as string);
+      const roles = (data ?? []).map((r) => r.role as string);
+
+      if (userId && !roles.includes("admin") && !pendingRoleSyncedUsers.has(userId)) {
+        pendingRoleSyncedUsers.add(userId);
+        try {
+          const result = await syncPendingAdmin();
+          if (result?.promoted) {
+            const { data: refreshed } = await supabase
+              .from("user_roles")
+              .select("role")
+              .eq("user_id", userId);
+            return (refreshed ?? []).map((r) => r.role as string);
+          }
+        } catch {
+          // Non-fatal; standard roles remain active
+        }
+      }
+
+      return roles;
     },
   });
 }

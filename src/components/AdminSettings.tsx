@@ -1,17 +1,20 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Eye, ImagePlus, Lock, LockOpen, Save, Trash2 } from "lucide-react";
+import { Eye, ImagePlus, Lock, LockOpen, Save, Store, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useServerFn } from "@tanstack/react-start";
 
 import { sendTestPushToMe } from "@/lib/push.functions";
 
+import { CampuLogo } from "@/components/CampuLogo";
 import { StoreClosedShutter } from "@/components/StoreClosedShutter";
 import { ThemePicker } from "@/components/ThemePicker";
+import { AdminAccessManager } from "@/components/admin/AdminAccessManager";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { supabase } from "@/integrations/supabase/client";
+import { MAX_STORE_NAME_LENGTH, STORE_NAME_SETTING_KEY } from "@/lib/admin-access";
 import { settingsQuery } from "@/lib/queries";
 import {
   DEFAULT_STORE_REOPEN_TIME,
@@ -47,6 +50,7 @@ export function AdminSettings() {
   const qr = useUpiQrImage(data?.["upi_qr_path"] || undefined);
 
   const [savingTheme, setSavingTheme] = useState<AppThemeId | null>(null);
+  const [savingStoreName, setSavingStoreName] = useState(false);
   const [togglingStore, setTogglingStore] = useState(false);
   const [previewShutter, setPreviewShutter] = useState(false);
 
@@ -61,12 +65,34 @@ export function AdminSettings() {
       sunday_tuesday_delivery_time: data["sunday_tuesday_delivery_time"] ?? "10:00",
       quick_delivery_estimate: data["quick_delivery_estimate"] ?? "15–20 min",
       whatsapp_link: data["whatsapp_link"] ?? "",
+      [STORE_NAME_SETTING_KEY]: data[STORE_NAME_SETTING_KEY] ?? "",
       [STORE_CLOSED_KEY]: data[STORE_CLOSED_KEY] ?? "false",
       [STORE_REOPEN_TIME_KEY]: data[STORE_REOPEN_TIME_KEY] ?? DEFAULT_STORE_REOPEN_TIME,
       [STORE_CLOSED_MESSAGE_KEY]: data[STORE_CLOSED_MESSAGE_KEY] ?? "",
       [THEME_SETTING_KEY]: data[THEME_SETTING_KEY] ?? DEFAULT_THEME_ID,
     });
   }, [data]);
+
+  async function saveStoreNameInstant() {
+    if (!values) return;
+    const cleaned = (values[STORE_NAME_SETTING_KEY] ?? "").trim();
+    if (cleaned.length > MAX_STORE_NAME_LENGTH) {
+      toast.error(`Store name must be ${MAX_STORE_NAME_LENGTH} characters or less.`);
+      return;
+    }
+    setSavingStoreName(true);
+    setValues((prev) => (prev ? { ...prev, [STORE_NAME_SETTING_KEY]: cleaned } : prev));
+    const { error } = await supabase
+      .from("app_settings")
+      .upsert({ key: STORE_NAME_SETTING_KEY, value: cleaned }, { onConflict: "key" });
+    setSavingStoreName(false);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    toast.success(cleaned ? `Store name updated to "${cleaned}"` : "Store name cleared");
+    void queryClient.invalidateQueries({ queryKey: ["app_settings"] });
+  }
 
   async function toggleStoreClosedInstant(nextClosed: boolean) {
     if (!values) return;
@@ -124,6 +150,10 @@ export function AdminSettings() {
     const rawWa = values["whatsapp_link"]?.trim() ?? "";
     if (rawWa && !/^https?:\/\/\S+$/i.test(rawWa)) {
       toast.error("Enter a valid WhatsApp URL starting with https://");
+      return;
+    }
+    if ((values[STORE_NAME_SETTING_KEY]?.trim().length ?? 0) > MAX_STORE_NAME_LENGTH) {
+      toast.error(`Store name must be ${MAX_STORE_NAME_LENGTH} characters or less.`);
       return;
     }
     setBusy(true);
@@ -214,6 +244,62 @@ export function AdminSettings() {
           onClosePreview={() => setPreviewShutter(false)}
         />
       )}
+
+      {/* Store Name (displayed directly underneath "Campu") */}
+      <section className="overflow-hidden rounded-2xl border border-border bg-card">
+        <div className="border-b border-border px-4 py-3.5">
+          <h2 className="flex items-center gap-2 font-display text-base font-bold text-foreground">
+            <Store className="h-4 w-4 text-primary" />
+            <span>Store Name</span>
+          </h2>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            Shown neatly underneath the Campu brand name in the app header. Leave blank to hide.
+          </p>
+        </div>
+        <div className="space-y-3 p-4">
+          <div className="flex gap-2">
+            <Input
+              id="store-name-input"
+              maxLength={MAX_STORE_NAME_LENGTH}
+              value={values[STORE_NAME_SETTING_KEY] ?? ""}
+              placeholder="e.g. Hostel Mart / Campus Fresh"
+              onChange={(e) =>
+                setValues({ ...values, [STORE_NAME_SETTING_KEY]: e.target.value })
+              }
+              className="h-10 min-w-0 flex-1 rounded-xl bg-background text-sm"
+            />
+            <Button
+              type="button"
+              disabled={savingStoreName}
+              onClick={() => void saveStoreNameInstant()}
+              className="h-10 shrink-0 rounded-xl bg-brand px-4 text-xs font-bold text-primary-foreground"
+            >
+              <Save className="mr-1.5 h-3.5 w-3.5" />
+              {savingStoreName ? "Saving…" : "Save"}
+            </Button>
+          </div>
+          <div className="flex items-center gap-2.5 rounded-xl border border-border/70 bg-background px-3 py-2">
+            <CampuLogo className="h-7 w-7 shrink-0 rounded-xl" />
+            <div className="flex min-w-0 flex-col leading-none">
+              <span className="font-display text-[17px] font-extrabold leading-none tracking-tight text-brand">
+                Campu
+              </span>
+              {values[STORE_NAME_SETTING_KEY]?.trim() ? (
+                <span className="mt-0.5 truncate text-[11px] font-semibold leading-tight text-muted-foreground">
+                  {values[STORE_NAME_SETTING_KEY].trim()}
+                </span>
+              ) : (
+                <span className="mt-0.5 text-[10.5px] italic text-muted-foreground/70">
+                  Store name preview appears here
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Admin Access & Super Admin Management */}
+      <AdminAccessManager />
 
       {/* Master Store Open / Close Shutter Control */}
       <section className="overflow-hidden rounded-2xl border border-border bg-card">

@@ -35,6 +35,7 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { supabase } from "@/integrations/supabase/client";
+import { isSuperAdminEmail } from "@/lib/admin-access";
 import { rupees, STATUS_LABELS } from "@/lib/format";
 import { notifyBroadcast, updateOrderWithPush } from "@/lib/push.functions";
 import { brandsQuery, categoriesQuery, productsQuery, settingsQuery, subcategoriesQuery } from "@/lib/queries";
@@ -581,7 +582,8 @@ function Admin() {
           <div className="flex min-w-0 items-center gap-2">
             <h1 className="font-display text-2xl font-bold">Admin</h1>
             <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-primary/35 bg-accent px-2.5 py-0.5 text-[11px] font-bold text-primary">
-              <Crown className="h-3 w-3" /> Store Owner
+              <Crown className="h-3 w-3" />{" "}
+              {isSuperAdminEmail(session?.user.email) ? "Super Admin" : "Admin"}
             </span>
           </div>
           <div className="flex shrink-0 items-center gap-2">
