@@ -41,8 +41,14 @@ export function useLiveSync() {
     if (userId) {
       // RLS limits these events to rows the user may read (own orders, or all for staff).
       channel = channel.on("postgres_changes", { event: "*", schema: "public", table: "orders" }, (payload) => {
-        const row = (payload.new ?? payload.old) as { id?: string } | null;
+        const row = (payload.new ?? payload.old) as { id?: string; status?: string; created_at?: string } | null;
+        if (payload.eventType === "INSERT" && row?.id && typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent("campu:new-order-instant", { detail: payload.new }));
+        }
         void queryClient.invalidateQueries({ queryKey: ["orders"] });
+        void queryClient.invalidateQueries({ queryKey: ["admin-orders"] });
+        void queryClient.invalidateQueries({ queryKey: ["admin-siren-orders"] });
+        void queryClient.invalidateQueries({ queryKey: ["admin-coins"] });
         void queryClient.invalidateQueries({ queryKey: ["coin-wallet-events"] });
         if (row?.id) void queryClient.invalidateQueries({ queryKey: ["order", row.id] });
       });

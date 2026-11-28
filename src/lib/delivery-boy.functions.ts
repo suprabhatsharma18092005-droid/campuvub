@@ -158,7 +158,7 @@ export const assignOrderDeliveryBoy = createServerFn({ method: "POST" })
 
     try {
       const { dispatchPushEvent, canSendLocally } = await import("./push-events.server");
-      const { hasTelegramCredentials, sendTelegramDeliveryBoyAlert } = await import("./telegram.server");
+      const { hasAnyTelegramCredentials, sendTelegramDeliveryBoyAlert } = await import("./telegram.server");
 
       const pushPayload = {
         type: "delivery_assigned" as const,
@@ -170,18 +170,16 @@ export const assignOrderDeliveryBoy = createServerFn({ method: "POST" })
         codCollectAmount: assignment.codCollectAmount,
       };
 
+      const localTelegram = await hasAnyTelegramCredentials();
+
       if (canSendLocally()) {
-        // runPushEvent handles both FCM push and Telegram alert in one shot
+        // runPushEvent handles both FCM push and Telegram alert in parallel
         const pushRes = await dispatchPushEvent(pushPayload, context);
         pushSent = pushRes.sent;
-        if (pushRes.error) {
-          telegramSent = false;
-          telegramReason = pushRes.error;
-        } else {
-          telegramSent = Boolean(hasTelegramCredentials());
-        }
-      } else if (hasTelegramCredentials()) {
-        // Local host has Telegram bot creds without FCM keys: send Telegram directly & forward FCM push
+        telegramSent = Boolean(pushRes.telegramSent);
+        telegramReason = pushRes.telegramError ?? (!telegramSent ? pushRes.error : undefined);
+      } else if (localTelegram) {
+        // Local host has Telegram bot creds (env or Vault) without FCM keys: send Telegram directly
         const [pushRes, tgRes] = await Promise.all([
           dispatchPushEvent(pushPayload, context),
           sendTelegramDeliveryBoyAlert({
@@ -201,15 +199,16 @@ export const assignOrderDeliveryBoy = createServerFn({ method: "POST" })
         telegramSent = tgRes.ok;
         telegramReason = tgRes.error;
       } else {
-        // Neither FCM nor Telegram keys locally: forward event to trusted Lovable host for both
+        // Neither FCM nor Telegram keys locally: forward event to trusted host
         const pushRes = await dispatchPushEvent(pushPayload, context);
         pushSent = pushRes.sent;
-        if (pushRes.error) {
-          telegramSent = false;
-          telegramReason = pushRes.error;
-        } else {
-          telegramSent = Boolean(boy.telegramChatId);
-        }
+        telegramSent = Boolean(pushRes.telegramSent);
+        telegramReason =
+          pushRes.telegramError ??
+          pushRes.error ??
+          (!telegramSent
+            ? "Telegram bot credentials are not configured on this host."
+            : undefined);
       }
     } catch (err) {
       telegramSent = false;
@@ -596,10 +595,10 @@ export const testDeliveryBoyTelegram = createServerFn({ method: "POST" })
   .inputValidator((input: z.input<typeof testTelegramSchema>) => testTelegramSchema.parse(input))
   .handler(async ({ data, context }) => {
     await assertAdmin(context);
-    const { hasTelegramCredentials, sendTelegramTestAlert } = await import("./telegram.server");
+    const { hasAnyTelegramCredentials, sendTelegramTestAlert } = await import("./telegram.server");
     const { dispatchPushEvent } = await import("./push-events.server");
 
-    if (hasTelegramCredentials()) {
+    if (await hasAnyTelegramCredentials()) {
       return sendTelegramTestAlert(data.chatId, data.boyName ?? null);
     }
 
@@ -611,10 +610,17 @@ export const testDeliveryBoyTelegram = createServerFn({ method: "POST" })
       },
       context,
     );
+    const ok = Boolean(res.telegramSent ?? res.sent > 0);
+    const error =
+      res.telegramError ??
+      res.error ??
+      (!ok
+        ? "Telegram bot token is not configured on this server (set TELEGRAM_BOT_TOKEN)."
+        : undefined);
     return {
-      ok: res.sent > 0,
+      ok,
       chatId: data.chatId,
-      ...(res.error ? { error: res.error } : {}),
+      ...(error ? { error } : {}),
     };
   });
 

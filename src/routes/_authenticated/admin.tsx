@@ -45,7 +45,11 @@ import { AdminProfitStats, adminAccountingQuery } from "@/components/admin/Admin
 import { CoinRequests, coinAdminQuery, loadAndSyncAdminCoins } from "@/components/admin/CoinRequests";
 import { DeliveryBoysManager } from "@/components/admin/DeliveryBoysManager";
 import { OrderReplacementManager } from "@/components/admin/OrderReplacementManager";
-import { OrderSiren } from "@/components/admin/OrderSiren";
+import {
+  OrderSiren,
+  setAdminSirenEnabled,
+  useAdminSirenEnabled,
+} from "@/components/admin/OrderSiren";
 import { VipRequests, vipAdminQuery } from "@/components/admin/VipRequests";
 import {
   deliveryBoyAdminQuery,
@@ -149,7 +153,7 @@ function Admin() {
   const [orderDeliveryFilter, setOrderDeliveryFilter] = useState<"all" | "quick" | "sunday_tuesday">("all");
   const updateOrder = useServerFn(updateOrderWithPush);
   const assignDeliveryBoyRemote = useServerFn(assignOrderDeliveryBoy);
-  const [sound, setSound] = useState(true);
+  const sound = useAdminSirenEnabled();
   const [busyOrderId, setBusyOrderId] = useState<string | null>(null);
   const [togglingStore, setTogglingStore] = useState(false);
   const seen = useRef<Set<string>>(new Set());
@@ -270,9 +274,11 @@ function Admin() {
           toast.success("New order received!");
         }
         void queryClient.invalidateQueries({ queryKey: ["admin-orders"] });
+        void queryClient.invalidateQueries({ queryKey: ["admin-coins"] });
       })
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "orders" }, () => {
         void queryClient.invalidateQueries({ queryKey: ["admin-orders"] });
+        void queryClient.invalidateQueries({ queryKey: ["admin-coins"] });
       })
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "suggestions" }, (payload) => {
         const text = (payload.new as { suggestion_text?: string } | undefined)?.suggestion_text;
@@ -535,10 +541,12 @@ function Admin() {
       ? all
       : all.filter((o) => (orderDeliveryFilter === "sunday_tuesday" ? isOrderSpecial(o) : isOrderQuick(o)));
   const coinUsages = coinAdmin.data?.ledger.orderUsages ?? {};
-  const isFullCoinOrder = (o: OrderRow) => {
-    const usage = coinUsages[o.id];
-    return Boolean(usage && usage.coinsUsed > 0 && usage.payableAmount === 0);
-  };
+  const fullCoinOrderIds = new Set(
+    Object.entries(coinUsages)
+      .filter(([, usage]) => Boolean(usage && usage.coinsUsed > 0 && usage.payableAmount === 0))
+      .map(([orderId]) => orderId),
+  );
+  const isFullCoinOrder = (o: OrderRow) => fullCoinOrderIds.has(o.id);
   const queue = all.filter((o) => o.status === "payment_review" && !isFullCoinOrder(o));
   const pending = modeFilteredOrders.filter(
     (o) =>
@@ -615,7 +623,7 @@ function Admin() {
               type="button"
               variant="outline"
               size="sm"
-              onClick={() => setSound((s) => !s)}
+              onClick={() => setAdminSirenEnabled(!sound)}
               className="shrink-0 rounded-full text-xs"
             >
               {sound ? <Volume2 className="h-3.5 w-3.5" /> : <VolumeX className="h-3.5 w-3.5" />}
@@ -626,6 +634,7 @@ function Admin() {
 
         <OrderSiren
           orders={all}
+          fullCoinOrderIds={fullCoinOrderIds}
           coinRequests={coinAdmin.data?.ledger.requests ?? []}
           payoutRequests={deliveryAdmin.data?.state.payoutRequests ?? []}
           enabled={sound}

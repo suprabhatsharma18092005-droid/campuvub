@@ -1,11 +1,29 @@
-/** Backup alerts via Telegram. Skips silently when not configured; never throws. */
+/** Backup alerts via Telegram. Checks env credentials and Supabase Vault; never throws. */
 const GATEWAY_URL = 'https://connector-gateway.lovable.dev/telegram';
+const VAULT_CACHE_TTL_MS = 5 * 60 * 1000;
 
 export type TelegramSendResult = {
   ok: boolean;
   chatId: string | null;
   error?: string;
 };
+
+type ResolvedTelegramConfig = {
+  lovableKey: string | null;
+  telegramKey: string | null;
+  botToken: string | null;
+  adminChatId: string | null;
+  deliveryChatId: string | null;
+};
+
+type VaultTelegramSecrets = {
+  botToken: string | null;
+  adminChatId: string | null;
+  deliveryChatId: string | null;
+  fetchedAt: number;
+};
+
+let vaultCache: VaultTelegramSecrets | null = null;
 
 function esc(s: string) {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -15,29 +33,146 @@ export function normalizeTelegramChatId(raw: string | null | undefined): string 
   if (!raw) return null;
   let cleaned = raw.trim();
   if (!cleaned) return null;
+  // Strip accidental invisible directional marks and "id:" prefix
+  cleaned = cleaned.replace(/[\u200B-\u200D\uFEFF]/g, '').replace(/^id\s*:\s*/i, '').trim();
   cleaned = cleaned.replace(/^https?:\/\/(www\.)?t\.me\//i, '@').replace(/^t\.me\//i, '@');
-  // Strip accidental surrounding whitespace or invisible directional marks
-  cleaned = cleaned.replace(/[\u200B-\u200D\uFEFF]/g, '').trim();
+  // Remove accidental whitespace inside numeric IDs (e.g. "5123 456 789")
+  if (/^-?[\d\s]+$/.test(cleaned)) {
+    cleaned = cleaned.replace(/\s+/g, '');
+  }
   return cleaned || null;
 }
 
-export function hasTelegramCredentials(): boolean {
-  const lovableKey = process.env['LOVABLE_API_KEY']?.trim();
-  const telegramKey = process.env['TELEGRAM_API_KEY']?.trim();
-  const botToken = process.env['TELEGRAM_BOT_TOKEN']?.trim();
-  return Boolean((lovableKey && telegramKey) || botToken);
+function readEnvTelegramConfig(): ResolvedTelegramConfig {
+  const lovableKey = process.env['LOVABLE_API_KEY']?.trim() || null;
+  const telegramKey =
+    process.env['TELEGRAM_API_KEY']?.trim() ||
+    process.env['LOVABLE_CONNECTOR_TELEGRAM_API_KEY']?.trim() ||
+    null;
+  const botToken =
+    process.env['TELEGRAM_BOT_TOKEN']?.trim() ||
+    process.env['TELEGRAM_TOKEN']?.trim() ||
+    process.env['LOVABLE_CONNECTOR_TELEGRAM_BOT_TOKEN']?.trim() ||
+    null;
+  const adminChatId = normalizeTelegramChatId(process.env['TELEGRAM_ADMIN_CHAT_ID']);
+  const deliveryChatId = normalizeTelegramChatId(process.env['TELEGRAM_DELIVERY_CHAT_ID']);
+  return { lovableKey, telegramKey, botToken, adminChatId, deliveryChatId };
 }
 
-function parseTelegramError(status: number, bodyText: string): string {
+export function hasTelegramCredentials(): boolean {
+  const env = readEnvTelegramConfig();
+  return Boolean((env.lovableKey && env.telegramKey) || env.botToken);
+}
+
+/**
+ * Falls back to Supabase Vault (`vault.decrypted_secrets`, matching the DB
+ * `telegram_send_alert` trigger) when server env vars are absent.
+ */
+async function readVaultTelegramSecrets(): Promise<VaultTelegramSecrets> {
+  const now = Date.now();
+  if (vaultCache && now - vaultCache.fetchedAt < VAULT_CACHE_TTL_MS) {
+    return vaultCache;
+  }
+  const empty: VaultTelegramSecrets = {
+    botToken: null,
+    adminChatId: null,
+    deliveryChatId: null,
+    fetchedAt: now,
+  };
+  if (!process.env['SUPABASE_URL'] || !process.env['SUPABASE_SERVICE_ROLE_KEY']) {
+    return empty;
+  }
+  try {
+    const { supabaseAdmin } = await import('@/integrations/supabase/client.server');
+    const vaultClient = supabaseAdmin as unknown as {
+      schema?: (name: string) => {
+        from: (table: string) => {
+          select: (cols: string) => {
+            in: (
+              col: string,
+              vals: string[],
+            ) => Promise<{
+              data: Array<{ name?: string; decrypted_secret?: string }> | null;
+              error: unknown;
+            }>;
+          };
+        };
+      };
+    };
+    if (typeof vaultClient.schema !== 'function') {
+      vaultCache = empty;
+      return empty;
+    }
+    const { data, error } = await vaultClient
+      .schema('vault')
+      .from('decrypted_secrets')
+      .select('name, decrypted_secret')
+      .in('name', ['telegram_bot_token', 'telegram_admin_chat_id', 'telegram_delivery_chat_id']);
+
+    if (error || !Array.isArray(data)) {
+      vaultCache = empty;
+      return empty;
+    }
+    const byName = new Map(
+      data
+        .filter((r) => typeof r.name === 'string' && typeof r.decrypted_secret === 'string')
+        .map((r) => [r.name as string, (r.decrypted_secret as string).trim()]),
+    );
+    const resolved: VaultTelegramSecrets = {
+      botToken: byName.get('telegram_bot_token') || null,
+      adminChatId: normalizeTelegramChatId(byName.get('telegram_admin_chat_id')),
+      deliveryChatId: normalizeTelegramChatId(byName.get('telegram_delivery_chat_id')),
+      fetchedAt: now,
+    };
+    vaultCache = resolved;
+    return resolved;
+  } catch {
+    vaultCache = empty;
+    return empty;
+  }
+}
+
+async function resolveTelegramConfig(): Promise<ResolvedTelegramConfig> {
+  const env = readEnvTelegramConfig();
+  if ((env.lovableKey && env.telegramKey) || (env.botToken && env.adminChatId)) {
+    return env;
+  }
+  const vault = await readVaultTelegramSecrets();
+  return {
+    lovableKey: env.lovableKey,
+    telegramKey: env.telegramKey,
+    botToken: env.botToken || vault.botToken,
+    adminChatId: env.adminChatId || vault.adminChatId,
+    deliveryChatId: env.deliveryChatId || vault.deliveryChatId,
+  };
+}
+
+export async function hasAnyTelegramCredentials(): Promise<boolean> {
+  if (hasTelegramCredentials()) return true;
+  const resolved = await resolveTelegramConfig();
+  return Boolean((resolved.lovableKey && resolved.telegramKey) || resolved.botToken);
+}
+
+export function parseTelegramError(
+  status: number,
+  bodyText: string,
+  targetChatId?: string | null,
+): string {
   try {
     const parsed = JSON.parse(bodyText) as { description?: string; error?: string };
     const desc = parsed.description || parsed.error;
     if (desc) {
       if (/chat not found/i.test(desc)) {
-        return 'Telegram chat not found — check Chat ID and ensure rider clicked /start on the bot.';
+        if (targetChatId?.startsWith('@')) {
+          return 'Telegram bots cannot message personal @usernames. Enter the rider’s numeric Chat ID (from @userinfobot) and ask them to tap /start on the bot.';
+        }
+        return 'Telegram chat not found — verify the numeric Chat ID and ensure the rider sent /start to the bot.';
       }
       if (/bot was blocked/i.test(desc)) {
         return 'Rider blocked the Telegram bot — ask them to unblock and send /start.';
+      }
+      if (/unauthorized/i.test(desc)) {
+        return 'Telegram bot token is invalid or revoked. Update TELEGRAM_BOT_TOKEN in host secrets.';
       }
       return `Telegram [${status}]: ${desc}`;
     }
@@ -47,69 +182,86 @@ function parseTelegramError(status: number, bodyText: string): string {
   return `Telegram error [${status}]: ${bodyText.slice(0, 140)}`;
 }
 
+async function inspectTelegramResponse(
+  res: Response,
+  targetChatId: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const text = await res.text();
+  if (!res.ok) {
+    return { ok: false, error: parseTelegramError(res.status, text, targetChatId) };
+  }
+  if (text) {
+    try {
+      const parsed = JSON.parse(text) as { ok?: boolean; description?: string; error?: string };
+      if (parsed && parsed.ok === false) {
+        return { ok: false, error: parseTelegramError(res.status, text, targetChatId) };
+      }
+    } catch {
+      // Non-JSON 200 response treated as accepted
+    }
+  }
+  return { ok: true };
+}
+
 export async function sendTelegramDetailed(
   chatId: string | null | undefined,
   htmlText: string,
   allowAdminFallback = true,
+  fetchImpl: typeof fetch = fetch,
 ): Promise<TelegramSendResult> {
+  const cfg = await resolveTelegramConfig();
   const normalized = normalizeTelegramChatId(chatId);
-  const targetChatId =
-    normalized ||
-    (allowAdminFallback ? normalizeTelegramChatId(process.env['TELEGRAM_ADMIN_CHAT_ID']) : null);
+  const targetChatId = normalized || (allowAdminFallback ? cfg.adminChatId : null);
   if (!targetChatId) {
     return { ok: false, chatId: null, error: 'No Telegram Chat ID provided.' };
   }
 
-  const lovableKey = process.env['LOVABLE_API_KEY']?.trim();
-  const telegramKey = process.env['TELEGRAM_API_KEY']?.trim();
-  const botToken = process.env['TELEGRAM_BOT_TOKEN']?.trim();
-
-  if (!(lovableKey && telegramKey) && !botToken) {
+  if (!(cfg.lovableKey && cfg.telegramKey) && !cfg.botToken) {
     return {
       ok: false,
       chatId: targetChatId,
-      error: 'Telegram bot credentials are not configured on this host.',
+      error: 'Telegram bot credentials are not configured on this host (set TELEGRAM_BOT_TOKEN).',
     };
   }
 
   let lastError: string | undefined;
 
-  if (lovableKey && telegramKey) {
+  if (cfg.lovableKey && cfg.telegramKey) {
     try {
-      const res = await fetch(`${GATEWAY_URL}/sendMessage`, {
+      const res = await fetchImpl(`${GATEWAY_URL}/sendMessage`, {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${lovableKey}`,
-          'X-Connection-Api-Key': telegramKey,
+          Authorization: `Bearer ${cfg.lovableKey}`,
+          'X-Connection-Api-Key': cfg.telegramKey,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ chat_id: targetChatId, text: htmlText, parse_mode: 'HTML' }),
       });
-      if (res.ok) {
+      const checked = await inspectTelegramResponse(res, targetChatId);
+      if (checked.ok) {
         return { ok: true, chatId: targetChatId };
       }
-      const errText = await res.text();
-      lastError = parseTelegramError(res.status, errText);
-      console.error(`Telegram gateway alert failed [${res.status}]: ${errText.slice(0, 200)}`);
+      lastError = checked.error;
+      console.error(`Telegram gateway alert failed [${res.status}]: ${checked.error}`);
     } catch (error) {
       lastError = error instanceof Error ? error.message : 'Telegram gateway request failed';
       console.error('Telegram gateway alert failed', error);
     }
   }
 
-  if (botToken) {
+  if (cfg.botToken) {
     try {
-      const res = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+      const res = await fetchImpl(`https://api.telegram.org/bot${cfg.botToken}/sendMessage`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ chat_id: targetChatId, text: htmlText, parse_mode: 'HTML' }),
       });
-      if (res.ok) {
+      const checked = await inspectTelegramResponse(res, targetChatId);
+      if (checked.ok) {
         return { ok: true, chatId: targetChatId };
       }
-      const errText = await res.text();
-      lastError = parseTelegramError(res.status, errText);
-      console.error(`Telegram bot alert failed [${res.status}]: ${errText.slice(0, 200)}`);
+      lastError = checked.error;
+      console.error(`Telegram bot alert failed [${res.status}]: ${checked.error}`);
     } catch (error) {
       lastError = error instanceof Error ? error.message : 'Telegram Bot API request failed';
       console.error('Telegram bot alert failed', error);
@@ -129,8 +281,8 @@ async function sendTelegramMessage(chatId: string | null | undefined, htmlText: 
 }
 
 export async function sendTelegramOrderAlert(orderId: string): Promise<boolean> {
-  const chatId = process.env['TELEGRAM_ADMIN_CHAT_ID'];
-  if (!hasTelegramCredentials() || !chatId) return false;
+  const cfg = await resolveTelegramConfig();
+  if (!((cfg.lovableKey && cfg.telegramKey) || cfg.botToken) || !cfg.adminChatId) return false;
   try {
     const { supabaseAdmin } = await import('@/integrations/supabase/client.server');
     const { data: order } = await supabaseAdmin.from('orders')
@@ -146,17 +298,16 @@ export async function sendTelegramOrderAlert(orderId: string): Promise<boolean> 
       `📦 Items: ${esc(items.map((i) => `${i.qty ?? 1}x ${i.name ?? 'Item'}`).join(', '))}`,
       `💳 Payment: ${esc(order.payment_method)}`,
     ].filter(Boolean).join('\n');
-    return sendTelegramMessage(chatId, text);
+    return sendTelegramMessage(cfg.adminChatId, text);
   } catch (error) {
     console.error('Telegram alert failed', error);
     return false;
   }
 }
 
-/** Sends a Delivery Boy assignment alert respecting strict UPI/COD privacy rules. */
-export async function sendTelegramDeliveryBoyAlert(params: {
+/** Builds the HTML Telegram delivery assignment text respecting strict UPI/COD privacy rules. */
+export function formatTelegramDeliveryBoyMessage(params: {
   boyName: string;
-  boyChatId?: string | null | undefined;
   orderId: string;
   customerName: string;
   deliveryAddress: string;
@@ -165,20 +316,18 @@ export async function sendTelegramDeliveryBoyAlert(params: {
   paymentMethod: 'UPI' | 'COD';
   paidWithCoins: boolean;
   codCollectAmount: number | null;
-}): Promise<TelegramSendResult> {
-  const explicitBoyChat = normalizeTelegramChatId(params.boyChatId);
-  const fallbackChat =
-    normalizeTelegramChatId(process.env['TELEGRAM_DELIVERY_CHAT_ID']) ||
-    normalizeTelegramChatId(process.env['TELEGRAM_ADMIN_CHAT_ID']);
-  const targetChat = explicitBoyChat || fallbackChat;
-  if (!targetChat) {
-    return { ok: false, chatId: null, error: 'No Delivery Boy or Admin Telegram Chat ID configured.' };
-  }
-
+}): string {
   const isPrepaid = params.paymentMethod === 'UPI' || params.paidWithCoins;
-  const itemLines = params.items
-    .map((i) => `  • ${i.qty}x ${esc(i.name)} — ₹${Number(i.price).toFixed(0)}`)
-    .join('\n');
+  const itemLines =
+    params.items.length > 0
+      ? params.items
+          .map((i) =>
+            isPrepaid
+              ? `  • ${i.qty}x ${esc(i.name)}`
+              : `  • ${i.qty}x ${esc(i.name)} — ₹${Number(i.price).toFixed(0)}`,
+          )
+          .join('\n')
+      : '  • See items in Delivery Partner tab';
 
   const lines = [
     `🛵 <b>Delivery Assigned to ${esc(params.boyName)} (#${params.orderId.slice(0, 8).toUpperCase()})</b>`,
@@ -187,12 +336,40 @@ export async function sendTelegramDeliveryBoyAlert(params: {
     params.phoneNumber ? `📞 ${esc(params.phoneNumber)}` : '',
     `📦 Items:\n${itemLines}`,
     isPrepaid
-      ? `💳 Payment: <b>UPI Prepaid (Do NOT collect cash)</b>`
+      ? `💳 Payment: <b>${params.paidWithCoins ? 'Campu Coins / UPI Prepaid' : 'UPI Prepaid'} (Do NOT collect cash)</b>`
       : `💵 Cash on Delivery — <b>Collect Total: ₹${Number(params.codCollectAmount ?? 0).toFixed(0)}</b>`,
     `Ask customer for 4-digit OTP to complete delivery.`,
   ].filter(Boolean);
 
-  return sendTelegramDetailed(targetChat, lines.join('\n'), !explicitBoyChat);
+  return lines.join('\n');
+}
+
+/** Sends a Delivery Boy assignment alert respecting strict UPI/COD privacy rules. */
+export async function sendTelegramDeliveryBoyAlert(
+  params: {
+    boyName: string;
+    boyChatId?: string | null | undefined;
+    orderId: string;
+    customerName: string;
+    deliveryAddress: string;
+    phoneNumber?: string | null | undefined;
+    items: { name: string; qty: number; price: number }[];
+    paymentMethod: 'UPI' | 'COD';
+    paidWithCoins: boolean;
+    codCollectAmount: number | null;
+  },
+  fetchImpl: typeof fetch = fetch,
+): Promise<TelegramSendResult> {
+  const cfg = await resolveTelegramConfig();
+  const explicitBoyChat = normalizeTelegramChatId(params.boyChatId);
+  const fallbackChat = cfg.deliveryChatId || cfg.adminChatId;
+  const targetChat = explicitBoyChat || fallbackChat;
+  if (!targetChat) {
+    return { ok: false, chatId: null, error: 'No Delivery Boy or Admin Telegram Chat ID configured.' };
+  }
+
+  const message = formatTelegramDeliveryBoyMessage(params);
+  return sendTelegramDetailed(targetChat, message, !explicitBoyChat, fetchImpl);
 }
 
 /** Sends a Delivery Boy Payout Request alert to Admin's Telegram. */
@@ -204,7 +381,8 @@ export async function sendTelegramPayoutAlert(params: {
   upiId?: string | null | undefined;
   bankingName?: string | null | undefined;
 }): Promise<TelegramSendResult> {
-  const adminChat = normalizeTelegramChatId(process.env['TELEGRAM_ADMIN_CHAT_ID']);
+  const cfg = await resolveTelegramConfig();
+  const adminChat = cfg.adminChatId;
   if (!adminChat) {
     return { ok: false, chatId: null, error: 'TELEGRAM_ADMIN_CHAT_ID not configured.' };
   }
@@ -225,8 +403,9 @@ export async function sendTelegramPayoutAlert(params: {
 export async function sendTelegramTestAlert(
   chatId: string,
   boyName?: string | null,
+  fetchImpl: typeof fetch = fetch,
 ): Promise<TelegramSendResult> {
   const label = boyName?.trim() ? esc(boyName.trim()) : 'Delivery Partner';
   const html = `✅ <b>Campu Delivery Telegram Test</b>\nHello ${label}! Your Telegram Chat ID is connected and ready for delivery order alerts.`;
-  return sendTelegramDetailed(chatId, html, false);
+  return sendTelegramDetailed(chatId, html, false, fetchImpl);
 }

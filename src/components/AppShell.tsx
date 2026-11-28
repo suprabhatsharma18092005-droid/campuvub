@@ -23,6 +23,7 @@ import { CatalogImage } from "@/components/CatalogImage";
 import { PushBanner } from "@/components/PushBanner";
 import { StoreClosedShutter } from "@/components/StoreClosedShutter";
 import { AdminCoinNotifier, StudentCoinStatusNotifier } from "@/components/admin/AdminCoinNotifier";
+import { GlobalAdminOrderSiren } from "@/components/admin/OrderSiren";
 import { AdminDeliveryNotifier, DeliveryBoyNotifier } from "@/components/delivery/DeliveryBoySiren";
 import {
   Sheet,
@@ -42,6 +43,7 @@ import { listenForForegroundPush } from "@/lib/push";
 import { productsQuery, settingsQuery } from "@/lib/queries";
 import { useSession } from "@/lib/session";
 import { getStoreName } from "@/lib/admin-access";
+import { initAdminAlarmUnlock, playFullVolumeOrderAlarm } from "@/lib/admin-alarm-audio";
 import {
   formatStoreClockTime,
   getStoreReopenTime,
@@ -93,16 +95,24 @@ export function AppShell({
     return () => clearTimeout(t);
   }, [bump]);
 
-  // Foreground: intercept the push, play a short chime and show a native-style
+  useEffect(() => {
+    if (royal.isAdmin) initAdminAlarmUnlock();
+  }, [royal.isAdmin]);
+
+  // Foreground: intercept the push, play a full-volume chime/alarm and show a native-style
   // heads-up banner instead of a system notification.
   useEffect(() => {
     const stop = listenForForegroundPush(({ title, body, path }) => {
-      try {
-        const audio = new Audio("/notification.mp3");
-        audio.volume = 0.8;
-        void audio.play().catch(() => console.log("Audio blocked by browser"));
-      } catch {
-        console.log("Audio blocked by browser");
+      if (royal.isAdmin && (path?.startsWith("/admin") || /order/i.test(title))) {
+        playFullVolumeOrderAlarm();
+      } else {
+        try {
+          const audio = new Audio("/notification.mp3");
+          audio.volume = 1.0;
+          void audio.play().catch(() => console.log("Audio blocked by browser"));
+        } catch {
+          console.log("Audio blocked by browser");
+        }
       }
       toast.custom(
         (id) => (
@@ -131,7 +141,7 @@ export function AppShell({
     });
 
     return stop;
-  }, [navigate]);
+  }, [navigate, royal.isAdmin]);
 
   useEffect(() => {
     const channel = supabase
@@ -165,6 +175,7 @@ export function AppShell({
     <RoyalThemeContext.Provider value={royal}>
       {royal.isAdmin && <AdminCoinNotifier />}
       {royal.isAdmin && <AdminDeliveryNotifier />}
+      {royal.isAdmin && pathname !== "/admin" && <GlobalAdminOrderSiren />}
       {session?.user.id && <StudentCoinStatusNotifier userId={session.user.id} />}
       {session?.user.id && <DeliveryBoyNotifier />}
       {showCheckoutShutter && (

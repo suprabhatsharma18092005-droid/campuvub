@@ -65,7 +65,13 @@ export const pushEventSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('test') }),
 ]);
 export type PushEvent = z.infer<typeof pushEventSchema>;
-export type PushEventResult = { sent: number; devices?: number; error?: string };
+export type PushEventResult = {
+  sent: number;
+  devices?: number;
+  error?: string;
+  telegramSent?: boolean;
+  telegramError?: string;
+};
 type EventContext = { supabase: SupabaseClient<Database>; userId: string };
 
 /** Public address of the trusted host; overridable per deployment. Not a credential. */
@@ -221,7 +227,10 @@ export async function runPushEvent(event: PushEvent, ctx: EventContext): Promise
       ]);
       return {
         ...pushRes,
-        ...(tgRes && !tgRes.ok && tgRes.error ? { error: tgRes.error } : {}),
+        telegramSent: Boolean(tgRes?.ok),
+        ...(tgRes && !tgRes.ok && tgRes.error
+          ? { telegramError: tgRes.error, error: tgRes.error }
+          : {}),
       };
     }
     case 'delivery_payout_request': {
@@ -263,7 +272,11 @@ export async function runPushEvent(event: PushEvent, ctx: EventContext): Promise
       if (!(await isAdmin(ctx))) throw new PushForbiddenError('Forbidden');
       const { sendTelegramTestAlert } = await import('./telegram.server');
       const tg = await sendTelegramTestAlert(event.chatId, event.boyName);
-      return { sent: tg.ok ? 1 : 0, ...(tg.error ? { error: tg.error } : {}) };
+      return {
+        sent: tg.ok ? 1 : 0,
+        telegramSent: tg.ok,
+        ...(tg.error ? { error: tg.error, telegramError: tg.error } : {}),
+      };
     }
     case 'test': {
       if (!(await isAdmin(ctx))) throw new PushForbiddenError('Forbidden');
@@ -316,6 +329,10 @@ export async function forwardPushEvent(event: PushEvent, auth: string | null | u
     sent: Number(body.sent) || 0,
     ...(typeof body.devices === 'number' ? { devices: body.devices } : {}),
     ...(typeof body.error === 'string' && body.error ? { error: body.error } : {}),
+    ...(typeof body.telegramSent === 'boolean' ? { telegramSent: body.telegramSent } : {}),
+    ...(typeof body.telegramError === 'string' && body.telegramError
+      ? { telegramError: body.telegramError }
+      : {}),
   };
 }
 
@@ -323,7 +340,16 @@ export async function forwardPushEvent(event: PushEvent, auth: string | null | u
 export async function dispatchPushEvent(event: PushEvent, ctx: EventContext): Promise<PushEventResult> {
   try {
     if (!process.env['SUPABASE_URL'] || !process.env['SUPABASE_PUBLISHABLE_KEY']) {
-      return { sent: 0 };
+      return {
+        sent: 0,
+        ...(event.type === 'telegram_test' || event.type === 'delivery_assigned'
+          ? {
+              telegramSent: false,
+              telegramError:
+                'Telegram bot token is not configured on this server. Set TELEGRAM_BOT_TOKEN or publish on the live host.',
+            }
+          : {}),
+      };
     }
     if (canSendLocally()) return await runPushEvent(event, ctx);
     if (LOCAL_ONLY_EVENT_TYPES.has(event.type) && !process.env['PUSH_EVENT_HOST_URL']) {

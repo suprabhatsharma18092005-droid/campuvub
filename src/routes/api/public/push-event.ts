@@ -11,8 +11,13 @@ export const Route = createFileRoute("/api/public/push-event")({
     handlers: {
       POST: async ({ request }) => {
         const events = await import("@/lib/push-events.server");
-        // Only a host that can send by itself serves events — prevents forwarding loops.
-        if (!events.canSendLocally()) return Response.json({ error: "Notifications unavailable" }, { status: 503 });
+        const { hasAnyTelegramCredentials } = await import("@/lib/telegram.server");
+        // Only a host that can send notifications locally serves events — prevents forwarding loops.
+        const localPushReady = events.canSendLocally();
+        const localTelegramReady = await hasAnyTelegramCredentials();
+        if (!localPushReady && !localTelegramReady) {
+          return Response.json({ error: "Notifications unavailable" }, { status: 503 });
+        }
 
         const ctx = await events.contextFromBearer(request.headers.get("authorization"));
         if (!ctx) return Response.json({ error: "Unauthorized" }, { status: 401 });

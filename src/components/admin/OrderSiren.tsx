@@ -1,13 +1,76 @@
+import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { Banknote, BellRing, Coins } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
+import { coinAdminQuery } from "@/components/admin/CoinRequests";
+import { deliveryBoyAdminQuery } from "@/components/delivery/DeliveryBoySiren";
 import { Button } from "@/components/ui/button";
-import type { CoinTopupRequest } from "@/lib/coins";
+import { supabase } from "@/integrations/supabase/client";
+import {
+  INSTANT_ORDER_EVENT,
+  initAdminAlarmUnlock,
+  isAdminAlarmAudioReady,
+  playFullVolumeOrderAlarm,
+  subscribeAdminAlarmAudioReady,
+  unlockAdminAlarmAudioNow,
+} from "@/lib/admin-alarm-audio";
+import { showBackgroundCoinBrowserNotification, type CoinTopupRequest } from "@/lib/coins";
 import type { DeliveryPayoutRequest } from "@/lib/delivery-boy";
-import { ringingCoinRequestIds, ringingOrderIds, ringingPayoutIds } from "@/lib/order-siren";
+import {
+  isAutoAcceptedCoinOrder,
+  ringingCoinRequestIds,
+  ringingOrderIds,
+  ringingPayoutIds,
+  type SirenOrderLike,
+} from "@/lib/order-siren";
 
 const ACK_KEY = "campu-admin-acknowledged-orders";
+const ADMIN_SIREN_PREF_KEY = "campu-admin-siren-enabled";
+
+const adminSirenListeners = new Set<() => void>();
+let adminSirenEnabledCache = true;
+let adminSirenPrefLoaded = false;
+
+function readAdminSirenEnabled(): boolean {
+  if (typeof window === "undefined") return true;
+  if (!adminSirenPrefLoaded) {
+    adminSirenPrefLoaded = true;
+    try {
+      const saved = window.localStorage.getItem(ADMIN_SIREN_PREF_KEY);
+      adminSirenEnabledCache = saved === null ? true : saved === "true";
+    } catch {
+      adminSirenEnabledCache = true;
+    }
+  }
+  return adminSirenEnabledCache;
+}
+
+export function setAdminSirenEnabled(enabled: boolean) {
+  adminSirenEnabledCache = enabled;
+  adminSirenPrefLoaded = true;
+  if (typeof window !== "undefined") {
+    try {
+      window.localStorage.setItem(ADMIN_SIREN_PREF_KEY, String(enabled));
+    } catch {
+      /* ignore */
+    }
+  }
+  adminSirenListeners.forEach((fn) => fn());
+}
+
+export function useAdminSirenEnabled(): boolean {
+  return useSyncExternalStore(
+    (cb) => {
+      adminSirenListeners.add(cb);
+      return () => {
+        adminSirenListeners.delete(cb);
+      };
+    },
+    readAdminSirenEnabled,
+    () => true,
+  );
+}
 
 function loadAcks(): Set<string> {
   try {
@@ -17,78 +80,95 @@ function loadAcks(): Set<string> {
   }
 }
 
-let sharedCtx: AudioContext | null = null;
-function audioCtx() {
-  if (!sharedCtx) {
-    const Ctx =
-      window.AudioContext ??
-      (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-    sharedCtx = new Ctx();
-  }
-  if (sharedCtx.state === "suspended") void sharedCtx.resume();
-  return sharedCtx;
-}
-
-function ring() {
-  try {
-    const ctx = audioCtx();
-    [880, 1320, 880, 1320].forEach((freq, i) => {
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      const t = ctx.currentTime + i * 0.25;
-      osc.type = "square";
-      osc.frequency.value = freq;
-      gain.gain.setValueAtTime(0.001, t);
-      gain.gain.exponentialRampToValueAtTime(0.4, t + 0.02);
-      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.22);
-      osc.connect(gain).connect(ctx.destination);
-      osc.start(t);
-      osc.stop(t + 0.24);
-    });
-    navigator.vibrate?.([300, 150, 300]);
-  } catch {
-    /* audio unavailable */
-  }
-}
-
-/** Keeps ringing (sound + flashing tab title) while recent orders, coin requests, or payout requests are unacknowledged. */
+/** Keeps ringing at full volume (media audio + dual-tone siren + vibration + flashing tab title) while recent orders (including auto-accepted Campu Coins orders), coin requests, or payout requests are unacknowledged. */
 export function OrderSiren({
   orders,
+  fullCoinOrderIds,
   coinRequests = [],
   payoutRequests = [],
   enabled,
 }: {
-  orders: { id: string; status: string; created_at: string }[];
+  orders: SirenOrderLike[];
+  fullCoinOrderIds?: ReadonlySet<string>;
   coinRequests?: CoinTopupRequest[];
   payoutRequests?: DeliveryPayoutRequest[];
   enabled: boolean;
 }) {
   const [acks, setAcks] = useState<Set<string>>(new Set());
   const [now, setNow] = useState(() => Date.now());
-  const [audioReady, setAudioReady] = useState(false);
+  const [instantOrders, setInstantOrders] = useState<SirenOrderLike[]>([]);
+  const audioReady = useSyncExternalStore(
+    subscribeAdminAlarmAudioReady,
+    isAdminAlarmAudioReady,
+    () => false,
+  );
   const baseTitle = useRef<string>("");
+  const notifiedIdsRef = useRef<Set<string>>(new Set());
 
-  useEffect(() => setAcks(loadAcks()), []);
+  useEffect(() => {
+    setAcks(loadAcks());
+    initAdminAlarmUnlock();
+  }, []);
+
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 30_000);
     return () => clearInterval(t);
   }, []);
 
-  // Unlock audio on the first tap anywhere (mobile browsers block autoplay).
+  // Sync acknowledgements across tabs or route transitions immediately
   useEffect(() => {
-    const unlock = () => {
-      try {
-        audioCtx();
-        setAudioReady(true);
-      } catch {
-        /* ignore */
-      }
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === ACK_KEY) setAcks(loadAcks());
     };
-    window.addEventListener("pointerdown", unlock, { once: true });
-    return () => window.removeEventListener("pointerdown", unlock);
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
   }, []);
 
-  const ringingOrders = useMemo(() => ringingOrderIds(orders, acks, now), [orders, acks, now]);
+  // Instant realtime order reception: ring the exact millisecond a new order row arrives
+  useEffect(() => {
+    const onInstantOrder = (evt: Event) => {
+      const detail = (evt as CustomEvent<SirenOrderLike | undefined>).detail;
+      if (!detail?.id) return;
+      const incoming: SirenOrderLike = {
+        id: detail.id,
+        status: detail.status || "pending",
+        created_at: detail.created_at || new Date().toISOString(),
+        accepted_at: detail.accepted_at ?? null,
+        payment_method: detail.payment_method ?? null,
+        utr_number: detail.utr_number ?? null,
+      };
+      setInstantOrders((prev) => {
+        if (prev.some((o) => o.id === incoming.id)) return prev;
+        return [incoming, ...prev].slice(0, 20);
+      });
+      setNow(Date.now());
+      if (enabled && !loadAcks().has(incoming.id)) {
+        playFullVolumeOrderAlarm();
+      }
+    };
+    window.addEventListener(INSTANT_ORDER_EVENT, onInstantOrder);
+    return () => window.removeEventListener(INSTANT_ORDER_EVENT, onInstantOrder);
+  }, [enabled]);
+
+  // Merge fetched orders with any instant realtime orders not yet in the fetched list
+  const mergedOrders = useMemo(() => {
+    if (instantOrders.length === 0) return orders;
+    const fetchedIds = new Set(orders.map((o) => o.id));
+    const extras = instantOrders.filter((o) => !fetchedIds.has(o.id));
+    return extras.length > 0 ? [...extras, ...orders] : orders;
+  }, [orders, instantOrders]);
+
+  const ringingOrders = useMemo(
+    () => ringingOrderIds(mergedOrders, acks, now, fullCoinOrderIds),
+    [mergedOrders, acks, now, fullCoinOrderIds],
+  );
+  const hasAutoAcceptedCoinOrder = useMemo(() => {
+    if (ringingOrders.length === 0) return false;
+    const ringingSet = new Set(ringingOrders);
+    return mergedOrders.some(
+      (o) => ringingSet.has(o.id) && isAutoAcceptedCoinOrder(o, fullCoinOrderIds),
+    );
+  }, [mergedOrders, ringingOrders, fullCoinOrderIds]);
   const ringingCoins = useMemo(
     () => ringingCoinRequestIds(coinRequests, acks, now),
     [coinRequests, acks, now],
@@ -100,10 +180,23 @@ export function OrderSiren({
   const totalCount = ringingOrders.length + ringingCoins.length + ringingPayouts.length;
   const active = totalCount > 0;
 
+  // Fire a background browser notification once per newly ringing order
+  useEffect(() => {
+    if (!enabled || ringingOrders.length === 0) return;
+    const unseen = ringingOrders.filter((id) => !notifiedIdsRef.current.has(id));
+    if (unseen.length === 0) return;
+    unseen.forEach((id) => notifiedIdsRef.current.add(id));
+    showBackgroundCoinBrowserNotification(
+      `🔴 New Campu Order! (${unseen.length})`,
+      "Tap to open Admin Orders and acknowledge the alarm.",
+      "/admin?tab=orders",
+    );
+  }, [enabled, ringingOrders]);
+
   useEffect(() => {
     if (!active || !enabled) return;
-    ring();
-    const t = setInterval(ring, 2500);
+    playFullVolumeOrderAlarm();
+    const t = setInterval(playFullVolumeOrderAlarm, 2400);
     return () => clearInterval(t);
   }, [active, enabled]);
 
@@ -130,6 +223,7 @@ export function OrderSiren({
   }, [active, totalCount, ringingOrders.length, ringingCoins.length, ringingPayouts.length]);
 
   function acknowledge() {
+    unlockAdminAlarmAudioNow();
     const next = new Set(acks);
     ringingOrders.forEach((id) => next.add(id));
     ringingCoins.forEach((id) => next.add(`coin:${id}`));
@@ -137,6 +231,7 @@ export function OrderSiren({
     const kept = [...next].slice(-500);
     localStorage.setItem(ACK_KEY, JSON.stringify(kept));
     setAcks(new Set(kept));
+    setInstantOrders((prev) => prev.filter((o) => !next.has(o.id)));
   }
 
   if (!active) return null;
@@ -174,14 +269,24 @@ export function OrderSiren({
         <div className="min-w-0 flex-1">
           <p className="font-display text-sm font-extrabold text-destructive">{headline}</p>
           <p className="text-xs text-muted-foreground">
+            {hasAutoAcceptedCoinOrder && "Includes Campu Coins order (payment auto-accepted). "}
             {enabled
               ? audioReady
-                ? "Siren rings until you acknowledge."
-                : "Tap anywhere to enable sound."
+                ? "Full-volume alarm rings until you acknowledge."
+                : "Tap anywhere to enable full-volume sound."
               : "Alerts are off."}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {ringingOrders.length > 0 && (
+            <Link
+              to="/admin"
+              search={{ tab: "orders" }}
+              className="inline-flex h-9 items-center rounded-full border border-destructive/40 bg-background px-3.5 text-xs font-bold text-destructive hover:bg-accent"
+            >
+              View Orders
+            </Link>
+          )}
           {ringingCoins.length > 0 && (
             <Link
               to="/admin"
@@ -210,5 +315,57 @@ export function OrderSiren({
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * Mounted in AppShell for admins browsing non-/admin pages so new orders
+ * (including auto-accepted Campu Coins orders) ring instantly at full volume until acknowledged.
+ */
+export function GlobalAdminOrderSiren() {
+  const enabled = useAdminSirenEnabled();
+  const orders = useQuery({
+    queryKey: ["admin-siren-orders"],
+    refetchInterval: 8_000,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+    queryFn: async (): Promise<SirenOrderLike[]> => {
+      const { data, error } = await supabase
+        .from("orders")
+        .select("id, status, created_at, accepted_at, payment_method, utr_number")
+        .order("created_at", { ascending: false })
+        .limit(100);
+      if (error) throw error;
+      return (data ?? []) as SirenOrderLike[];
+    },
+  });
+  const coinAdmin = useQuery({
+    ...coinAdminQuery,
+    refetchInterval: 10_000,
+  });
+  const deliveryAdmin = useQuery({
+    ...deliveryBoyAdminQuery,
+    refetchInterval: 15_000,
+  });
+
+  const fullCoinOrderIds = useMemo(() => {
+    const usages = coinAdmin.data?.ledger.orderUsages ?? {};
+    const ids = new Set<string>();
+    for (const [orderId, usage] of Object.entries(usages)) {
+      if (usage && usage.coinsUsed > 0 && usage.payableAmount === 0) {
+        ids.add(orderId);
+      }
+    }
+    return ids;
+  }, [coinAdmin.data?.ledger.orderUsages]);
+
+  return (
+    <OrderSiren
+      orders={orders.data ?? []}
+      fullCoinOrderIds={fullCoinOrderIds}
+      coinRequests={coinAdmin.data?.ledger.requests ?? []}
+      payoutRequests={deliveryAdmin.data?.state.payoutRequests ?? []}
+      enabled={enabled}
+    />
   );
 }
